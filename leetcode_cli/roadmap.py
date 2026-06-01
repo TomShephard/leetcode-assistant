@@ -222,6 +222,20 @@ def pick(topic: str, preset: str, difficulty: str = "any",
     return random.choice(unsolved or pool)
 
 
+_slug_topic: dict[str, str] | None = None
+
+
+def topic_for_slug(slug: str) -> str | None:
+    """The roadmap topic a problem belongs to, or None if not on the roadmap."""
+    global _slug_topic
+    if _slug_topic is None:
+        try:
+            _slug_topic = {p["slug"]: p["pattern"] for p in all_problems()}
+        except RoadmapError:
+            _slug_topic = {}
+    return _slug_topic.get(slug)
+
+
 def resolve_topic(value: str) -> str | None:
     """Match a topic name loosely (case/punctuation-insensitive)."""
     norm = re.sub(r"[^a-z0-9]", "", value.lower())

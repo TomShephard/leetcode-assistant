@@ -25,22 +25,28 @@ def _save(data: dict[str, Any]) -> None:
     PROGRESS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def record_solve(number: int, slug: str, title: str, difficulty: str) -> dict[str, Any]:
+def record_solve(number: int, slug: str, title: str, difficulty: str,
+                 topic: str | None = None, optimality: str | None = None,
+                 url: str | None = None) -> dict[str, Any]:
     data = _load()
     today = date.today().isoformat()
-    # Avoid duplicate entries for the same problem on the same day.
-    for entry in data["solved"]:
-        if entry.get("slug") == slug and entry.get("date") == today:
+    entry = {
+        "date": today,
+        "number": number,
+        "slug": slug,
+        "title": title,
+        "difficulty": difficulty,
+        "topic": topic or "",
+        "optimality": optimality or "unknown",
+        "url": url or f"https://leetcode.com/problems/{slug}/",
+    }
+    # Update in place if this problem was already logged (keep latest verdict).
+    for i, existing in enumerate(data["solved"]):
+        if existing.get("slug") == slug and existing.get("date") == today:
+            data["solved"][i] = entry
+            _save(data)
             return data
-    data["solved"].append(
-        {
-            "date": today,
-            "number": number,
-            "slug": slug,
-            "title": title,
-            "difficulty": difficulty,
-        }
-    )
+    data["solved"].append(entry)
     _save(data)
     return data
 

@@ -64,6 +64,22 @@ so it works offline and instantly. It was extracted from neetcode.io (which
 carries the blind75 / neetcode150 / neetcode250 flags); refresh it any time with
 `py tools/refresh_neetcode_data.py`.
 
+## Complexity check and a self-updating solutions README
+
+On submit (once the tests pass), the tool estimates the solution's time
+complexity *empirically* -- it runs your code on inputs of growing size and
+fits the growth curve -- and compares it against the problem's known-optimal
+class. A brute-force Two Sum (nested loops, O(n^2)) is flagged **suboptimal**
+("half solved"); the hashing version (O(n)) is **optimal**. It's a heuristic:
+it only grades Python solutions whose first argument is a list of numbers, and
+only for problems with a known target complexity -- everything else is reported
+without a verdict.
+
+Each submission also rewrites a presentable `README.md` in your **solutions
+repo** from your full solve log: summary badges (solved / streak / per-
+difficulty / optimal ratio) and a table of every problem with its date,
+difficulty, topic, and whether it was solved optimally.
+
 ## Standalone EXE (no Python needed)
 
 Build a double-clickable Windows executable of the GUI:

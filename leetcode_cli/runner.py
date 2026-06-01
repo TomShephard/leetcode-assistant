@@ -181,6 +181,11 @@ console.log(JSON.stringify({ results }));
 '''
 
 
+# On Windows, suppress the console window that would otherwise flash for every
+# child process when we run as a windowed (no-console) packaged app.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
+
+
 def _find_system_python() -> list[str] | None:
     for name in ("py", "python", "python3"):
         found = shutil.which(name)
@@ -260,7 +265,8 @@ def run_tests(solution_path: Path, meta: dict[str, Any]) -> RunReport:
 
         try:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30
+                cmd, capture_output=True, text=True, timeout=30,
+                creationflags=NO_WINDOW,
             )
         except subprocess.TimeoutExpired:
             return RunReport(False, [], "Solution timed out (>30s).")

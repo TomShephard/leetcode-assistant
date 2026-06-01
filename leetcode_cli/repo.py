@@ -9,10 +9,15 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from .config import REPO_DIR
+
+# Suppress the console window that would otherwise flash for every git command
+# when running as a windowed (no-console) packaged app on Windows.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
 
 
 class RepoError(RuntimeError):
@@ -26,7 +31,7 @@ def _has(cmd: str) -> bool:
 def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         args, cwd=str(cwd) if cwd else None,
-        capture_output=True, text=True,
+        capture_output=True, text=True, creationflags=_NO_WINDOW,
     )
 
 
@@ -96,12 +101,22 @@ def commit_and_push(
     rel_path = (rel_dir / dest_name).as_posix()
 
     shutil.copyfile(solution_path, dest_path)
-
     _run(["git", "add", rel_path], cwd=repo)
 
-    # Nothing staged? Then the file is unchanged from what's committed.
-    status = _run(["git", "status", "--porcelain", rel_path], cwd=repo)
-    if not status.stdout.strip():
+    # Regenerate the solutions-repo README from the local solve log so it
+    # always reflects the latest history (date / topic / optimal-or-not).
+    try:
+        from . import progress, readme
+        data = progress._load()
+        (repo / "README.md").write_text(
+            readme.generate(data.get("solved", []), progress.current_streak()),
+            encoding="utf-8")
+        _run(["git", "add", "README.md"], cwd=repo)
+    except Exception:  # noqa: BLE001 - README is a nice-to-have, never block a commit
+        pass
+
+    # Nothing staged at all? Then there is genuinely nothing to commit.
+    if _run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode == 0:
         return {"committed": False, "path": rel_path, "reason": "no changes"}
 
     message = f"Solve {number}: {title} ({difficulty.capitalize()})"

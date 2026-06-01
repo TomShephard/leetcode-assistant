@@ -972,30 +972,48 @@ class App:
 
     def _do_commit(self, path: Path, meta: dict[str, Any], repo_url: str) -> None:
         ext = SUPPORTED_LANGUAGES.get(meta.get("language", "python"), {}).get("ext", "txt")
-        self.log("Committing to your solutions repo...\n")
+        self.log("Tests passed. Checking solution complexity "
+                 "(this can take a few seconds), then committing...\n", "info")
+        self.status_var.set("Checking complexity, please wait...")
 
         def work() -> Any:
-            return repo.commit_and_push(
+            from . import complexity, roadmap
+            self._post(lambda: self.status_var.set("Checking complexity, please wait..."))
+            cx = complexity.estimate(path, meta)
+            topic = roadmap.topic_for_slug(meta["slug"]) or ""
+            # record BEFORE commit so the repo README includes this solve
+            progress.record_solve(
+                meta["number"], meta["slug"], meta["title"], meta["difficulty"],
+                topic=topic, optimality=cx.verdict, url=meta.get("url"))
+            result = repo.commit_and_push(
                 repo_url, path,
                 number=meta["number"], title=meta["title"],
                 difficulty=meta["difficulty"], slug=meta["slug"], language_ext=ext)
+            return result, cx
 
-        def done(result: Any, err: Exception | None) -> None:
+        def done(payload: Any, err: Exception | None) -> None:
             if err:
                 self.log(f"Git error: {err}\n", "fail")
                 return
+            result, cx = payload
+            if cx.verdict == "optimal":
+                self.log(f"Complexity: {cx.measured} -- optimal.\n", "pass")
+            elif cx.verdict == "suboptimal":
+                self.log(f"Complexity: {cx.measured} (optimal is {cx.optimal}) "
+                         "-- looks brute-force/half-solved.\n", "fail")
+            elif cx.measured != "unknown":
+                self.log(f"Complexity: {cx.measured}.\n", "muted")
             committed = result.get("committed")
             if not committed:
                 self.log(f"Nothing to commit ({result.get('reason', 'no changes')}) "
                          f"at {result['path']}.\n", "muted")
             else:
                 self.log(f"Committed: {result['message']}\n", "pass")
-                self.log(f"Path: {result['path']}\n", "muted")
+                self.log(f"Path: {result['path']}  (README.md updated)\n", "muted")
                 if result.get("pushed"):
                     self.log("Pushed to remote.\n", "pass")
                 else:
                     self.log(f"Push failed: {result.get('push_error', 'unknown')}\n", "fail")
-            progress.record_solve(meta["number"], meta["slug"], meta["title"], meta["difficulty"])
             self.refresh_streak()
             self._refresh_practice_after_solve()
             # Optional local cleanup once it's safely committed.

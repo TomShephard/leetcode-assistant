@@ -223,6 +223,25 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     lang = meta.get("language", "python")
     ext = SUPPORTED_LANGUAGES.get(lang, {}).get("ext", "txt")
+
+    # Gauge whether the solution uses an efficient approach.
+    from . import complexity, roadmap
+    print("\nChecking solution complexity (this can take a few seconds)...")
+    cx = complexity.estimate(path, meta)
+    if cx.verdict == "optimal":
+        print(f"\nComplexity: {cx.measured} -- looks optimal.")
+    elif cx.verdict == "suboptimal":
+        print(f"\nComplexity: {cx.measured} (optimal is {cx.optimal}) -- "
+              "looks brute-force / half-solved. (Committing anyway.)")
+    elif cx.measured != "unknown":
+        print(f"\nComplexity: {cx.measured} (no known-optimal to compare).")
+    topic = roadmap.topic_for_slug(meta["slug"]) or ""
+
+    # Record BEFORE committing so the repo README includes this solve.
+    progress.record_solve(
+        meta["number"], meta["slug"], meta["title"], meta["difficulty"],
+        topic=topic, optimality=cx.verdict, url=meta.get("url"))
+
     print("\nCommitting to your solutions repo ...")
     try:
         result = repo.commit_and_push(
@@ -250,10 +269,6 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
             print(f"  Push failed: {result.get('push_error', 'unknown error')}")
             print("  The commit is saved locally in ~/.leetcode-cli/repo; "
                   "fix auth and `git push` there, or re-run submit.")
-
-    progress.record_solve(
-        meta["number"], meta["slug"], meta["title"], meta["difficulty"]
-    )
 
     # Optionally tidy up the local file now that it's safely committed.
     should_cleanup = config.get("delete_after_submit", False)
