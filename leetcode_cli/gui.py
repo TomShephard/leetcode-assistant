@@ -359,17 +359,18 @@ class App:
     def _build_practice_tab(self, parent: tk.Misc) -> None:
         bar = ttk.Frame(parent)
         bar.pack(fill="x", padx=12, pady=(10, 4))
-        ttk.Label(bar, text="Pick a list, choose a topic, drill its problems. NeetCode "
-                  "presets follow the roadmap; All LeetCode shows every problem by topic.",
-                  style="TLabel").pack(side="left")
+        # Pack the right-hand controls FIRST so they keep their full size; the
+        # description label (packed last) takes whatever space is left over.
         ttk.Button(bar, text="Refresh", command=lambda: self._populate_topics(force=True)
-                   ).pack(side="right")
-        ttk.Label(bar, text="List:", style="TLabel").pack(side="right", padx=(0, 4))
+                   ).pack(side="right", padx=(8, 0))
         preset_box = ttk.Combobox(
             bar, textvariable=self.preset_var, width=26, state="readonly",
             values=[name for _, name in roadmap.PRESETS] + [LEETCODE_VIEW])
         preset_box.pack(side="right", padx=6)
         preset_box.bind("<<ComboboxSelected>>", lambda e: self._on_preset_changed())
+        ttk.Label(bar, text="List:", style="TLabel").pack(side="right", padx=(0, 2))
+        ttk.Label(bar, text="Pick a list, then a topic, and drill its problems.",
+                  style="TLabel").pack(side="left")
 
         body = ttk.Frame(parent)
         body.pack(fill="both", expand=True, padx=12, pady=6)
