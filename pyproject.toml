@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leetcode-cli"
+version = "1.0.0"
+description = "A daily LeetCode workflow CLI: fetch, test, and submit problems."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []  # standard library only
+
+[project.scripts]
+leetcode = "leetcode_cli.cli:main"
+
+[tool.setuptools]
+packages = ["leetcode_cli"]

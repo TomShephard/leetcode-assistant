@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# leetcode-cli launcher (bash / git-bash / WSL). Runs the CLI without
+# installing by pointing Python at this folder.
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="py"
+command -v py >/dev/null 2>&1 || PY="python3"
+PYTHONPATH="$DIR:$PYTHONPATH" "$PY" -m leetcode_cli "$@"
