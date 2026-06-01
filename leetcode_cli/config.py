@@ -19,6 +19,8 @@ HOME_DIR = Path.home() / ".leetcode-cli"
 CONFIG_PATH = HOME_DIR / "config.json"
 PROGRESS_PATH = HOME_DIR / "progress.json"
 REPO_DIR = HOME_DIR / "repo"
+TOPICS_CACHE = HOME_DIR / "topics_cache.json"
+NEETCODE_CACHE = HOME_DIR / "neetcode_cache.json"
 
 # Per-working-directory scratch space for fetched problem metadata so that
 # `leetcode test` / `leetcode submit` can run without re-fetching.
@@ -41,6 +43,7 @@ DEFAULTS: dict[str, Any] = {
     "editor": "",  # explicit editor command; blank = auto-detect PyCharm
     "workdir": "",  # last-used solutions folder (GUI remembers this)
     "delete_after_submit": False,  # remove the local file once it's committed
+    "preset": "neetcode150",  # roadmap preset: blind75 / neetcode150 / all
 }
 
 

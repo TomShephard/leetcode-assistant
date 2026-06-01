@@ -12,9 +12,57 @@ leetcode test       run the example test cases against your solution
 leetcode submit     test, then commit + push a passing solution
 leetcode config     set up or view configuration
 leetcode stats      show your solve stats and streak
+leetcode roadmap    show the NeetCode roadmap and your progress
+leetcode list TOPIC list the problems in a roadmap topic
 leetcode clean      remove scaffolded files from a folder
 leetcode gui        launch the point-and-click GUI
 ```
+
+## NeetCode roadmap (structured course)
+
+Work through interview prep as a course instead of random problems. The roadmap
+uses NeetCode's curated lists and topic order (Arrays & Hashing -> Two Pointers
+/ Stack -> ... -> DP), with prerequisites between topics. Four presets widen
+the selection:
+
+- **Blind 75** - the classic 75-problem starter list
+- **NeetCode 150** - the default (28 easy / 101 medium / 21 hard)
+- **NeetCode 250** - the extended 250-problem list
+- **NeetCode (All)** - every roadmap problem (~940)
+
+Your solved count per topic is tracked automatically by cross-referencing your
+solve log, and updates as you submit.
+
+```
+leetcode roadmap                          # progress per topic at your preset
+leetcode roadmap --preset blind75
+leetcode list "two pointers"              # problems in a topic, [x] = solved
+leetcode list "1-d dp" --preset neetcode250 --unsolved
+leetcode fetch --topic "two pointers"     # scaffold a random unsolved one
+leetcode fetch --topic trees -p neetcode150 -d medium
+```
+
+Presets accept `blind75`, `neetcode150`, `neetcode250`, or `all`.
+
+In the **GUI**, the "NeetCode Roadmap" tab shows the topics in roadmap order
+with live done/total counts and a list selector. Click a topic to see its
+problems (colour-coded by difficulty, solved ones highlighted, prerequisites
+shown), filter by difficulty or unsolved-only, and double-click (or "Fetch
+selected") to scaffold it. Switching list re-scopes everything; counts update
+as you submit.
+
+### Browse all of LeetCode by topic
+
+Not everything is on the NeetCode roadmap. Pick **"All LeetCode (by topic)"**
+from the same list selector to browse LeetCode's full topic taxonomy (arrays,
+strings, trees, graphs, DP, and ~20 more) with every problem in each category,
+not just the curated ones. From the CLI, the topic commands also accept any
+LeetCode topic.
+
+The roadmap dataset ships with the tool (`leetcode_cli/neetcode_roadmap.json`),
+so it works offline and instantly. It was extracted from neetcode.io (which
+carries the blind75 / neetcode150 / neetcode250 flags); refresh it any time with
+`py tools/refresh_neetcode_data.py`.
 
 ## Standalone EXE (no Python needed)
 
@@ -61,6 +109,9 @@ or just double-click `leetcode-gui.cmd` in this folder. The window lets you:
 - Open the scaffolded file in your editor, edit it, then
 - Run tests (pass/fail shown in colour) and Submit (commit + push),
 - see your streak update live.
+
+Each section in the Workflow tab is collapsible -- click its header to fold it
+away and keep the window tidy. The Output box expands to fill the freed space.
 
 ## Run it from PyCharm
 

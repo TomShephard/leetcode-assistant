@@ -24,11 +24,12 @@ import tkinter as tk
 from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 from . import config as cfg
-from . import data, progress, repo, runner, scaffold
+from . import data, progress, repo, roadmap, runner, scaffold
 from .config import SUPPORTED_LANGUAGES, VALID_DIFFICULTIES
 
 LANG_CHOICES = ["python", "javascript"]
 DIFF_CHOICES = list(VALID_DIFFICULTIES) + ["any"]
+LEETCODE_VIEW = "All LeetCode (by topic)"
 
 # Colour palette
 BG = "#eef1f6"
@@ -90,10 +91,11 @@ def open_in_editor(path: Path, editor: str = "") -> str:
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        root.title("leetcode-cli")
-        root.geometry("880x720")
-        root.minsize(760, 600)
+        root.title("Leetcode GUI")
+        root.geometry("980x860")
+        root.minsize(820, 660)
         root.configure(bg=BG)
+        self._set_window_icon()
 
         self.config = cfg.load_config() or dict(cfg.DEFAULTS)
         self._busy = False
@@ -110,6 +112,16 @@ class App:
         self.target_var = tk.StringVar(value="(none yet)")
         self.streak_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready.")
+
+        # Practice / roadmap tab state
+        self.topic_problems: dict[str, list[dict[str, Any]]] = {}
+        self.leetcode_cache: dict[str, list[dict[str, Any]]] = {}
+        self.current_topic: str | None = None
+        self.practice_loaded = False
+        self.practice_diff = tk.StringVar(value="any")
+        self.practice_unsolved = tk.BooleanVar(value=False)
+        _preset = roadmap.normalize_preset(self.config.get("preset"))
+        self.preset_var = tk.StringVar(value=roadmap.PRESET_NAMES[_preset])
 
         self._setup_style()
         self._build_ui()
@@ -172,12 +184,73 @@ class App:
         style.configure("Status.TLabel", background="#dfe4ec", foreground=MUTED,
                         padding=(8, 4))
 
+        # Notebook tabs
+        style.configure("TNotebook", background=BG, borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(16, 8),
+                        font=("Segoe UI Semibold", 10))
+        style.map("TNotebook.Tab",
+                  background=[("selected", CARD), ("!selected", "#dde3ec")],
+                  foreground=[("selected", ACCENT), ("!selected", MUTED)])
+
+        # Treeviews (sections + problems)
+        style.configure("Treeview", rowheight=24, font=("Segoe UI", 10),
+                        background=CARD, fieldbackground=CARD)
+        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10))
+
+    def _set_window_icon(self) -> None:
+        png = Path(__file__).with_name("icon.png")
+        ico = Path(__file__).with_name("icon.ico")
+        try:
+            if png.exists():
+                self._icon_img = tk.PhotoImage(file=str(png))  # keep a reference
+                self.root.iconphoto(True, self._icon_img)
+        except tk.TclError:
+            pass
+        try:
+            if ico.exists() and sys.platform.startswith("win"):
+                self.root.iconbitmap(default=str(ico))
+        except tk.TclError:
+            pass
+
     def _card(self, parent: tk.Misc, title: str) -> ttk.Frame:
         lf = ttk.Labelframe(parent, text=title, style="Card.TLabelframe")
         lf.pack(fill="x", padx=14, pady=7)
         inner = ttk.Frame(lf, style="Card.TFrame")
         inner.pack(fill="x", padx=10, pady=8)
         return inner
+
+    def _collapsible_card(self, parent: tk.Misc, title: str,
+                          expand: bool = False, collapsed: bool = False) -> ttk.Frame:
+        """A card whose body can be collapsed/expanded by clicking its header."""
+        container = tk.Frame(parent, bg=CARD, highlightbackground=BORDER,
+                             highlightthickness=1, bd=0)
+        container.pack(fill="both" if expand else "x", expand=expand, padx=14, pady=6)
+
+        head = tk.Frame(container, bg=CARD, cursor="hand2")
+        head.pack(fill="x")
+        state = {"open": not collapsed}
+        arrow = tk.Label(head, text="▾" if state["open"] else "▸",
+                         bg=CARD, fg=ACCENT, font=("Segoe UI", 10, "bold"))
+        arrow.pack(side="left", padx=(8, 4), pady=5)
+        lbl = tk.Label(head, text=title, bg=CARD, fg=ACCENT,
+                       font=("Segoe UI Semibold", 10))
+        lbl.pack(side="left", pady=5)
+
+        body = ttk.Frame(container, style="Card.TFrame")
+        if state["open"]:
+            body.pack(fill="both", expand=expand, padx=10, pady=(0, 8))
+
+        def toggle(_event: Any = None) -> None:
+            state["open"] = not state["open"]
+            arrow.configure(text="▾" if state["open"] else "▸")
+            if state["open"]:
+                body.pack(fill="both", expand=expand, padx=10, pady=(0, 8))
+            else:
+                body.pack_forget()
+
+        for w in (head, arrow, lbl):
+            w.bind("<Button-1>", toggle)
+        return body
 
     # ------------------------------------------------------------------ #
     # UI construction
@@ -194,13 +267,30 @@ class App:
         ttk.Label(header, textvariable=self.streak_var,
                   style="Streak.TLabel").pack(side="right", padx=18)
 
+        # Status bar (packed first so it stays at the bottom under the notebook)
+        ttk.Label(self.root, textvariable=self.status_var, style="Status.TLabel",
+                  anchor="w").pack(fill="x", side="bottom")
+
+        # Tabs
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True, padx=6, pady=(6, 0))
+        workflow_tab = ttk.Frame(self.notebook)
+        practice_tab = ttk.Frame(self.notebook)
+        self.notebook.add(workflow_tab, text="  Workflow  ")
+        self.notebook.add(practice_tab, text="  NeetCode Roadmap  ")
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        self._build_workflow_tab(workflow_tab)
+        self._build_practice_tab(practice_tab)
+
+    def _build_workflow_tab(self, parent: tk.Misc) -> None:
         # Working folder
-        wf = self._card(self.root, "Working folder (solutions are saved here)")
+        wf = self._collapsible_card(parent, "Working folder (solutions are saved here)")
         ttk.Entry(wf, textvariable=self.workdir).pack(side="left", fill="x", expand=True)
         ttk.Button(wf, text="Change...", command=self.choose_workdir).pack(side="left", padx=(8, 0))
 
         # Config
-        cf = self._card(self.root, "Configuration")
+        cf = self._collapsible_card(parent, "Configuration", collapsed=True)
         cf.columnconfigure(1, weight=1)
         ttk.Label(cf, text="Private repo URL:", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=3)
         ttk.Entry(cf, textvariable=self.repo_var).grid(row=0, column=1, columnspan=3, sticky="we", padx=6, pady=3)
@@ -221,7 +311,7 @@ class App:
             row=3, column=3, sticky="e", pady=(6, 0))
 
         # Fetch
-        ff = self._card(self.root, "Fetch a problem")
+        ff = self._collapsible_card(parent, "Fetch a problem")
         ttk.Label(ff, text="Number or slug (blank = random):", style="Card.TLabel").pack(side="left")
         ttk.Entry(ff, textvariable=self.problem_var, width=22).pack(side="left", padx=6)
         ttk.Label(ff, text="Difficulty:", style="Card.TLabel").pack(side="left")
@@ -231,7 +321,7 @@ class App:
         self.fetch_btn.pack(side="left", padx=6)
 
         # Current target + actions
-        af = self._card(self.root, "Current solution")
+        af = self._collapsible_card(parent, "Current solution")
         trow = ttk.Frame(af, style="Card.TFrame")
         trow.pack(fill="x")
         ttk.Label(trow, text="File:", style="Card.TLabel").pack(side="left")
@@ -248,10 +338,9 @@ class App:
         ttk.Button(brow, text="Clean folder", command=self.do_clean).pack(side="right", padx=4)
 
         # Output log
-        of = ttk.Labelframe(self.root, text="Output", style="Card.TLabelframe")
-        of.pack(fill="both", expand=True, padx=14, pady=7)
+        of = self._collapsible_card(parent, "Output", expand=True)
         mono = tkfont.Font(family="Consolas", size=10)
-        self.log_widget = tk.Text(of, wrap="word", height=12, state="disabled",
+        self.log_widget = tk.Text(of, wrap="word", height=16, state="disabled",
                                   background=CONSOLE_BG, foreground=CONSOLE_FG,
                                   insertbackground=CONSOLE_FG, relief="flat",
                                   font=mono, padx=10, pady=8)
@@ -264,8 +353,280 @@ class App:
         self.log_widget.tag_configure("info", foreground="#60a5fa")
         self.log_widget.tag_configure("muted", foreground="#94a3b8")
 
-        ttk.Label(self.root, textvariable=self.status_var, style="Status.TLabel",
-                  anchor="w").pack(fill="x", side="bottom")
+    # ------------------------------------------------------------------ #
+    # NeetCode roadmap tab
+    # ------------------------------------------------------------------ #
+    def _build_practice_tab(self, parent: tk.Misc) -> None:
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", padx=12, pady=(10, 4))
+        ttk.Label(bar, text="Pick a list, choose a topic, drill its problems. NeetCode "
+                  "presets follow the roadmap; All LeetCode shows every problem by topic.",
+                  style="TLabel").pack(side="left")
+        ttk.Button(bar, text="Refresh", command=lambda: self._populate_topics(force=True)
+                   ).pack(side="right")
+        ttk.Label(bar, text="List:", style="TLabel").pack(side="right", padx=(0, 4))
+        preset_box = ttk.Combobox(
+            bar, textvariable=self.preset_var, width=22, state="readonly",
+            values=[name for _, name in roadmap.PRESETS] + [LEETCODE_VIEW])
+        preset_box.pack(side="right", padx=6)
+        preset_box.bind("<<ComboboxSelected>>", lambda e: self._on_preset_changed())
+
+        body = ttk.Frame(parent)
+        body.pack(fill="both", expand=True, padx=12, pady=6)
+
+        # Left: topics (roadmap order for NeetCode; LeetCode taxonomy otherwise)
+        left = ttk.Labelframe(body, text="Topics", style="Card.TLabelframe")
+        left.pack(side="left", fill="y", padx=(0, 8))
+        self.topic_tree = ttk.Treeview(left, columns=("prog",), show="tree headings",
+                                       height=18, selectmode="browse")
+        self.topic_tree.heading("#0", text="Topic")
+        self.topic_tree.heading("prog", text="Done")
+        self.topic_tree.column("#0", width=210, anchor="w")
+        self.topic_tree.column("prog", width=64, anchor="center")
+        self.topic_tree.pack(side="left", fill="y", padx=6, pady=6)
+        self.topic_tree.bind("<<TreeviewSelect>>", self._on_topic_selected)
+        self.topic_tree.tag_configure("complete", foreground="#1a7f37")
+
+        # Right: problems in selected topic
+        right = ttk.Labelframe(body, text="Problems", style="Card.TLabelframe")
+        right.pack(side="left", fill="both", expand=True)
+        self.topic_header_var = tk.StringVar(value="Select a topic on the left.")
+        ttk.Label(right, textvariable=self.topic_header_var, style="Muted.TLabel"
+                  ).pack(anchor="w", padx=8, pady=(6, 0))
+        ctl = ttk.Frame(right, style="Card.TFrame")
+        ctl.pack(fill="x", padx=6, pady=6)
+        ttk.Label(ctl, text="Difficulty:", style="Card.TLabel").pack(side="left")
+        ttk.Combobox(ctl, textvariable=self.practice_diff, values=DIFF_CHOICES, width=8,
+                     state="readonly").pack(side="left", padx=6)
+        self.practice_diff.trace_add("write", lambda *_: self._refresh_question_list())
+        ttk.Checkbutton(ctl, text="Unsolved only", variable=self.practice_unsolved,
+                        command=self._refresh_question_list, style="TCheckbutton").pack(side="left", padx=10)
+        self.practice_fetch_btn = ttk.Button(ctl, text="Fetch selected", style="Accent.TButton",
+                                             command=self._fetch_selected_question)
+        self.practice_fetch_btn.pack(side="right", padx=4)
+        ttk.Button(ctl, text="Random unsolved", command=self._fetch_random_in_topic
+                   ).pack(side="right", padx=4)
+
+        qwrap = ttk.Frame(right, style="Card.TFrame")
+        qwrap.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        self.question_tree = ttk.Treeview(
+            qwrap, columns=("num", "diff", "title", "done"), show="headings",
+            selectmode="browse")
+        for col, text, w, anchor in (
+            ("num", "#", 60, "center"), ("diff", "Difficulty", 90, "center"),
+            ("title", "Title", 360, "w"), ("done", "Solved", 70, "center")):
+            self.question_tree.heading(col, text=text)
+            self.question_tree.column(col, width=w, anchor=anchor)
+        self.question_tree.pack(side="left", fill="both", expand=True)
+        qsb = ttk.Scrollbar(qwrap, command=self.question_tree.yview)
+        qsb.pack(side="right", fill="y")
+        self.question_tree.configure(yscrollcommand=qsb.set)
+        self.question_tree.tag_configure("easy", foreground="#1a7f37")
+        self.question_tree.tag_configure("medium", foreground="#9a6700")
+        self.question_tree.tag_configure("hard", foreground="#cf222e")
+        self.question_tree.tag_configure("solved", background="#e6f4ea")
+        self.question_tree.bind("<Double-1>", lambda e: self._fetch_selected_question())
+
+    # --- mode helpers --------------------------------------------------- #
+    def _current_mode(self) -> str:
+        return "leetcode" if self.preset_var.get() == LEETCODE_VIEW else "neetcode"
+
+    def _current_preset(self) -> str:
+        name = self.preset_var.get()
+        for key, disp in roadmap.PRESETS:
+            if disp == name:
+                return key
+        return roadmap.DEFAULT_PRESET
+
+    def _on_tab_changed(self, _event: Any) -> None:
+        try:
+            current = self.notebook.tab(self.notebook.select(), "text")
+        except tk.TclError:
+            return
+        if "Roadmap" in current and not self.practice_loaded:
+            self.practice_loaded = True
+            self._populate_topics()
+
+    def _on_preset_changed(self) -> None:
+        if self._current_mode() == "neetcode":
+            self.config["preset"] = self._current_preset()
+            cfg.save_config(self.config)
+        self.current_topic = None
+        self.topic_header_var.set("Select a topic on the left.")
+        self.question_tree.delete(*self.question_tree.get_children())
+        self._populate_topics()
+
+    # --- topic list population (both modes) ----------------------------- #
+    def _populate_topics(self, force: bool = False) -> None:
+        if force:
+            self.leetcode_cache.clear()
+        self.topic_tree.delete(*self.topic_tree.get_children())
+        if self._current_mode() == "neetcode":
+            self._populate_neetcode(force=force)
+        else:
+            self._populate_leetcode()
+
+    def _populate_neetcode(self, force: bool = False) -> None:
+        try:
+            roadmap.all_problems(force=force)  # bundled JSON; instant
+        except roadmap.RoadmapError as exc:
+            self.topic_header_var.set("Could not load roadmap data.")
+            self.log(f"Roadmap load error: {exc}\n", "fail")
+            return
+        preset = self._current_preset()
+        solved = progress.solved_slugs()
+        self.topic_problems = {}
+        for topic, probs in roadmap.topics_for_preset(preset):
+            self.topic_problems[topic] = probs
+            done = sum(1 for p in probs if p["slug"] in solved)
+            total = len(probs)
+            tags = ("complete",) if total and done == total else ()
+            self.topic_tree.insert("", "end", iid=topic, text=topic,
+                                   values=(f"{done}/{total}",), tags=tags)
+        self.status_var.set("Roadmap loaded.")
+
+    def _populate_leetcode(self) -> None:
+        solved = progress.solved_slugs()
+        self.topic_problems = {}
+        for name, slug in data.LEETCODE_TOPICS:
+            cached = self.leetcode_cache.get(slug)
+            if cached is not None:
+                self.topic_problems[name] = cached
+                done = sum(1 for q in cached if q["slug"] in solved)
+                val = f"{done}/{len(cached)}"
+            else:
+                val = "-"
+            self.topic_tree.insert("", "end", iid=name, text=name, values=(val,))
+        self.status_var.set("All LeetCode topics -- pick one to load its problems.")
+
+    def _on_topic_selected(self, _event: Any) -> None:
+        sel = self.topic_tree.selection()
+        if not sel:
+            return
+        topic = self.current_topic = sel[0]
+        if self._current_mode() == "neetcode":
+            pre = ", ".join(roadmap.PREREQS.get(topic, [])) or "none (start here)"
+            self.topic_header_var.set(f"{topic}    -    prerequisites: {pre}")
+            self._refresh_question_list()
+        else:
+            self.topic_header_var.set(f"All LeetCode problems tagged '{topic}'")
+            if topic in self.topic_problems:
+                self._refresh_question_list()
+            else:
+                self._load_leetcode_topic(topic, data.LEETCODE_TOPIC_BY_DISPLAY[topic])
+
+    def _load_leetcode_topic(self, topic: str, slug: str) -> None:
+        self.question_tree.delete(*self.question_tree.get_children())
+        self.status_var.set(f"Loading '{topic}' from LeetCode...")
+
+        def work() -> Any:
+            return data.leetcode_topic_questions(slug)
+
+        def done(result: Any, err: Exception | None) -> None:
+            if err:
+                self.log(f"Could not load '{topic}': {err}\n", "fail")
+                self.status_var.set("Topic load failed.")
+                return
+            qs = (result if self.config.get("include_paid", False)
+                  else [q for q in result if not q["paid"]])
+            self.leetcode_cache[slug] = qs
+            self.topic_problems[topic] = qs
+            solved = progress.solved_slugs()
+            done_n = sum(1 for q in qs if q["slug"] in solved)
+            if self.topic_tree.exists(topic):
+                self.topic_tree.item(topic, values=(f"{done_n}/{len(qs)}",))
+            if self.current_topic == topic:
+                self._refresh_question_list()
+            self.status_var.set(f"{topic}: {len(qs)} problems")
+
+        self.run_bg(work, done)
+
+    def _refresh_question_list(self) -> None:
+        topic = self.current_topic
+        self.question_tree.delete(*self.question_tree.get_children())
+        if not topic or topic not in self.topic_problems:
+            return
+        solved = progress.solved_slugs()
+        diff = self.practice_diff.get()
+        unsolved_only = self.practice_unsolved.get()
+        for q in self.topic_problems[topic]:
+            if diff in ("easy", "medium", "hard") and q["difficulty"] != diff:
+                continue
+            is_solved = q["slug"] in solved
+            if unsolved_only and is_solved:
+                continue
+            tags = (q["difficulty"],) + (("solved",) if is_solved else ())
+            self.question_tree.insert(
+                "", "end", iid=q["slug"],
+                values=(q["number"], q["difficulty"].capitalize(), q["title"],
+                        "yes" if is_solved else ""),
+                tags=tags)
+
+    def _fetch_selected_question(self) -> None:
+        sel = self.question_tree.selection()
+        if not sel:
+            messagebox.showinfo("Pick a problem", "Select a problem in the list first.")
+            return
+        self._fetch_problem_by_slug(sel[0])
+
+    def _fetch_random_in_topic(self) -> None:
+        topic = self.current_topic
+        if not topic or topic not in self.topic_problems:
+            messagebox.showinfo("Pick a topic", "Select a topic first (and let it load).")
+            return
+        solved = progress.solved_slugs()
+        pool = self.topic_problems[topic]
+        diff = self.practice_diff.get()
+        if diff in ("easy", "medium", "hard"):
+            pool = [q for q in pool if q["difficulty"] == diff]
+        unsolved = [q for q in pool if q["slug"] not in solved]
+        pick_from = unsolved or pool
+        if not pick_from:
+            messagebox.showinfo("Nothing to fetch", "No problems match the current filter.")
+            return
+        import random as _r
+        self._fetch_problem_by_slug(_r.choice(pick_from)["slug"])
+
+    def _refresh_practice_after_solve(self) -> None:
+        """Recompute counts + the visible list (no network) so progress
+        reflects the just-solved problem."""
+        if not self.practice_loaded:
+            return
+        self._populate_topics()
+        self._refresh_question_list()
+
+    def _fetch_problem_by_slug(self, slug: str) -> None:
+        lang = self.lang_var.get().strip().lower()
+        if lang not in SUPPORTED_LANGUAGES:
+            messagebox.showerror("Language", "Choose python or javascript.")
+            return
+        workdir = self._workdir_path()
+        if not workdir.is_dir():
+            messagebox.showerror("Working folder", f"Not a folder: {workdir}")
+            return
+        self.log_section(f"Fetch {slug}")
+        self.log(f"Fetching '{slug}'...\n")
+
+        def work() -> Any:
+            problem = data.leetcode_get(slug)
+            return scaffold.scaffold(problem, lang, workdir) + (problem,)
+
+        def done(result: Any, err: Exception | None) -> None:
+            if err:
+                if isinstance(err, FileExistsError):
+                    self.log(f"A file already exists: {err}. Not overwriting.\n", "fail")
+                else:
+                    self.log(f"Error: {err}\n", "fail")
+                return
+            path, meta, problem = result
+            self.log(f"{problem.number}. {problem.title} "
+                     f"[{problem.difficulty.capitalize()}]\n")
+            self.log(f"Saved: {path}\n", "info")
+            self.refresh_target()
+            self.notebook.select(0)  # jump to Workflow to solve it
+            self.status_var.set(f"Fetched {problem.number}. {problem.title}")
+
+        self.run_bg(work, done)
 
     # ------------------------------------------------------------------ #
     # threading helpers
@@ -307,7 +668,10 @@ class App:
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         state = "disabled" if busy else "normal"
-        for btn in (self.fetch_btn, self.test_btn, self.submit_btn):
+        buttons = [self.fetch_btn, self.test_btn, self.submit_btn]
+        if hasattr(self, "practice_fetch_btn"):
+            buttons.append(self.practice_fetch_btn)
+        for btn in buttons:
             btn.configure(state=state)
         self.status_var.set("Working..." if busy else "Ready.")
 
@@ -523,22 +887,30 @@ class App:
                 self.log(f"Error running tests: {err}\n", "fail")
                 return
             passed = self._show_test_report(report, None)
-            if report.ran and not passed:
-                # Strict gate: failing tests can never be committed.
-                self.log("Tests did not pass - nothing was committed. "
-                         "Fix the failing cases and submit again.\n", "fail")
-                messagebox.showerror(
-                    "Tests failed",
-                    "This solution did not pass its tests, so it was not "
-                    "committed.\n\nFix the failing cases and try again.")
-                self.status_var.set("Submit blocked: tests failed.")
-                return
-            if not report.ran:
-                # No auto-runnable cases: can't verify, so confirm first.
+            has_tests = bool(meta.get("test_cases"))
+            if has_tests:
+                # This problem HAS example tests -> they must pass. If they
+                # failed, or couldn't run (e.g. the solution doesn't compile
+                # yet), block. Never offer a bypass here.
+                if not (report.ran and passed):
+                    if report.ran:
+                        reason = ("This solution did not pass its tests, so it was "
+                                  "not committed.")
+                    else:
+                        reason = ("This solution's tests could not run -- check that "
+                                  "the file compiles and the method is complete. "
+                                  "Nothing was committed.")
+                    self.log("Not committed - tests must pass first.\n", "fail")
+                    messagebox.showerror("Tests must pass", reason +
+                                         "\n\nFix it and submit again.")
+                    self.status_var.set("Submit blocked: tests not passed.")
+                    return
+            else:
+                # Problem genuinely has no auto-runnable cases: confirm first.
                 if not messagebox.askyesno(
                     "No test cases",
-                    "There are no automatic test cases to verify this solution. "
-                    "Submit anyway?"):
+                    "This problem has no automatic test cases to verify the "
+                    "solution. Submit anyway?"):
                     self.log("Submit cancelled.\n", "muted")
                     return
             self._do_commit(path, meta, repo_url)
@@ -572,6 +944,7 @@ class App:
                     self.log(f"Push failed: {result.get('push_error', 'unknown')}\n", "fail")
             progress.record_solve(meta["number"], meta["slug"], meta["title"], meta["difficulty"])
             self.refresh_streak()
+            self._refresh_practice_after_solve()
             # Optional local cleanup once it's safely committed.
             if committed and self.delete_after.get():
                 removed = scaffold.cleanup_solution(self._workdir_path(), meta)

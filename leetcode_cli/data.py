@@ -17,11 +17,15 @@ from __future__ import annotations
 import json
 import random
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from html import unescape
 from typing import Any
+
+from .config import TOPICS_CACHE, ensure_home
+
 
 LEETCODE_API_ALL = "https://leetcode.com/api/problems/all/"
 LEETCODE_GRAPHQL = "https://leetcode.com/graphql"
@@ -291,3 +295,112 @@ def fetch_problem(config: dict[str, Any], identifier: str | None, difficulty: st
     if identifier:
         return leetcode_get(identifier)
     return leetcode_pick(difficulty, bool(config.get("include_paid", False)))
+
+
+# --------------------------------------------------------------------------- #
+# Browse ALL of LeetCode by topic tag (the non-NeetCode view)
+# --------------------------------------------------------------------------- #
+# LeetCode's own topic taxonomy: every problem carrying that tag is available.
+LEETCODE_TOPICS: list[tuple[str, str]] = [
+    ("Array", "array"),
+    ("Hashing", "hash-table"),
+    ("String", "string"),
+    ("Two Pointers", "two-pointers"),
+    ("Sliding Window", "sliding-window"),
+    ("Stack", "stack"),
+    ("Monotonic Stack", "monotonic-stack"),
+    ("Queue", "queue"),
+    ("Binary Search", "binary-search"),
+    ("Linked List", "linked-list"),
+    ("Trees", "tree"),
+    ("Binary Search Tree", "binary-search-tree"),
+    ("Tries", "trie"),
+    ("Heap / Priority Queue", "heap-priority-queue"),
+    ("Backtracking", "backtracking"),
+    ("Recursion", "recursion"),
+    ("Graphs", "graph"),
+    ("Union Find", "union-find"),
+    ("Dynamic Programming", "dynamic-programming"),
+    ("Greedy", "greedy"),
+    ("Bit Manipulation", "bit-manipulation"),
+    ("Math", "math"),
+    ("Geometry", "geometry"),
+    ("Matrix", "matrix"),
+    ("Sorting", "sorting"),
+]
+LEETCODE_TOPIC_BY_DISPLAY = {name: slug for name, slug in LEETCODE_TOPICS}
+
+_PROBLEMSET_QUERY = """
+query problemsetQuestionList($limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+  problemsetQuestionList: questionList(categorySlug: "", limit: $limit, skip: $skip, filters: $filters) {
+    total: totalNum
+    questions: data {
+      questionFrontendId
+      title
+      titleSlug
+      difficulty
+      isPaidOnly
+    }
+  }
+}
+"""
+
+_TOPIC_CACHE_TTL = 7 * 24 * 3600
+
+
+def _load_topic_cache() -> dict[str, Any]:
+    if not TOPICS_CACHE.exists():
+        return {}
+    try:
+        return json.loads(TOPICS_CACHE.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_topic_cache(cache: dict[str, Any]) -> None:
+    ensure_home()
+    try:
+        TOPICS_CACHE.write_text(json.dumps(cache), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def leetcode_topic_questions(slug: str, force: bool = False) -> list[dict[str, Any]]:
+    """All LeetCode questions carrying a topic tag (cached on disk for a week).
+    Each item: {number, slug, title, difficulty, paid}."""
+    cache = _load_topic_cache()
+    entry = cache.get(slug)
+    if entry and not force and (time.time() - entry.get("ts", 0)) < _TOPIC_CACHE_TTL:
+        return entry["questions"]
+
+    questions: list[dict[str, Any]] = []
+    skip, page, total = 0, 100, None
+    while True:
+        resp = _post_graphql(
+            _PROBLEMSET_QUERY,
+            {"skip": skip, "limit": page, "filters": {"tags": [slug]}})
+        block = (resp or {}).get("data", {}).get("problemsetQuestionList")
+        if not block:
+            break
+        total = block.get("total", 0)
+        rows = block.get("questions") or []
+        for q in rows:
+            try:
+                number = int(q["questionFrontendId"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            questions.append({
+                "number": number,
+                "slug": q["titleSlug"],
+                "title": q["title"],
+                "difficulty": (q.get("difficulty") or "").lower(),
+                "paid": bool(q.get("isPaidOnly", False)),
+            })
+        skip += page
+        if total is None or skip >= total or not rows:
+            break
+
+    questions.sort(key=lambda r: r["number"])
+    cache[slug] = {"ts": time.time(), "questions": questions}
+    _save_topic_cache(cache)
+    return questions

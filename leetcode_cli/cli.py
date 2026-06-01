@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, config as cfg
-from . import data, progress, repo, runner, scaffold
+from . import data, progress, repo, roadmap, runner, scaffold
 from .config import SUPPORTED_LANGUAGES, VALID_DIFFICULTIES
 
 
@@ -50,6 +50,10 @@ def _resolve_difficulty(value: str | None, config: dict[str, Any]) -> str:
     return diff
 
 
+def _resolve_preset(value: str | None, config: dict[str, Any]) -> str:
+    return roadmap.normalize_preset(value or config.get("preset"))
+
+
 # --------------------------------------------------------------------------- #
 # target resolution for test/submit
 # --------------------------------------------------------------------------- #
@@ -89,15 +93,33 @@ def cmd_fetch(args: argparse.Namespace, config: dict[str, Any]) -> int:
     cwd = Path.cwd()
 
     target = args.problem
-    if target:
-        print(f"Fetching problem '{target}' ...")
-    else:
-        label = difficulty if difficulty != "any" else "any difficulty"
-        print(f"Fetching a random {label} problem ...")
+    topic = getattr(args, "topic", None)
 
     try:
-        problem = data.fetch_problem(config, target, difficulty)
-    except data.DataError as exc:
+        if topic:
+            tname = roadmap.resolve_topic(topic)
+            if not tname:
+                print(f"\nUnknown topic '{topic}'. See `leetcode roadmap` for the list.")
+                return 1
+            if target:
+                print(f"Fetching problem '{target}' ...")
+                problem = data.fetch_problem(config, target, difficulty)
+            else:
+                preset = _resolve_preset(getattr(args, "preset", None), config)
+                label = difficulty if difficulty != "any" else "any difficulty"
+                print(f"Fetching a {label} '{tname}' problem "
+                      f"({roadmap.PRESET_NAMES[preset]}) you haven't solved ...")
+                chosen = roadmap.pick(tname, preset, difficulty,
+                                      exclude=progress.solved_slugs())
+                problem = data.leetcode_get(chosen["slug"])
+        else:
+            if target:
+                print(f"Fetching problem '{target}' ...")
+            else:
+                label = difficulty if difficulty != "any" else "any difficulty"
+                print(f"Fetching a random {label} problem ...")
+            problem = data.fetch_problem(config, target, difficulty)
+    except (data.DataError, roadmap.RoadmapError) as exc:
         print(f"\nError: {exc}")
         return 1
 
@@ -175,15 +197,22 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     report = runner.run_tests(path, meta)
     _print_test_report(report)
 
-    if report.ran and not report.passed:
-        # Strict gate: failing tests can never be committed.
-        print("\nTests did not pass, so nothing was committed. "
-              "Fix the failing cases and run submit again.")
-        return 1
-    if not report.ran:
+    has_tests = bool(meta.get("test_cases"))
+    if has_tests:
+        # This problem HAS example tests -> they must pass. If they failed or
+        # couldn't run (e.g. the solution doesn't compile yet), block.
+        if not (report.ran and report.passed):
+            if report.ran:
+                print("\nTests did not pass, so nothing was committed. "
+                      "Fix the failing cases and run submit again.")
+            else:
+                print("\nThe tests could not run (does the file compile and is the "
+                      "method complete?), so nothing was committed.")
+            return 1
+    else:
         # No runnable cases (e.g. tree/linked-list/in-place problems). These
         # can't be auto-verified, so ask the user to confirm before committing.
-        print("\nThere are no automatic test cases to verify this solution.")
+        print("\nThis problem has no automatic test cases to verify the solution.")
         try:
             answer = input("Submit anyway? [y/N]: ").strip().lower()
         except EOFError:
@@ -242,6 +271,57 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     return 0
 
 
+def cmd_roadmap(args: argparse.Namespace, config: dict[str, Any]) -> int:
+    preset = _resolve_preset(getattr(args, "preset", None), config)
+    try:
+        topics = roadmap.topics_for_preset(preset)
+    except roadmap.RoadmapError as exc:
+        print(f"Error: {exc}")
+        return 1
+    solved = progress.solved_slugs()
+    grand_done = grand_total = 0
+    print(f"NeetCode roadmap  -  preset: {roadmap.PRESET_NAMES[preset]}\n")
+    for i, (topic, probs) in enumerate(topics, 1):
+        total = len(probs)
+        done = sum(1 for p in probs if p["slug"] in solved)
+        grand_done += done
+        grand_total += total
+        bar_w = 16
+        filled = int(bar_w * done / total) if total else 0
+        bar = "#" * filled + "-" * (bar_w - filled)
+        print(f"  {i:>2}. {topic:<26} [{bar}] {done}/{total}")
+    print(f"\n  Total: {grand_done}/{grand_total} solved")
+    print("\nChange preset with --preset blind75|neetcode150|all")
+    print('Drill one with:  leetcode fetch --topic "two pointers"')
+    return 0
+
+
+def cmd_list(args: argparse.Namespace, config: dict[str, Any]) -> int:
+    topic = roadmap.resolve_topic(args.topic)
+    if not topic:
+        print(f"Unknown topic '{args.topic}'. See `leetcode roadmap` for the list.")
+        return 1
+    preset = _resolve_preset(getattr(args, "preset", None), config)
+    try:
+        probs = roadmap.topic_problems(topic, preset)
+    except roadmap.RoadmapError as exc:
+        print(f"Error: {exc}")
+        return 1
+    if args.difficulty and args.difficulty != "any":
+        probs = [p for p in probs if p["difficulty"] == args.difficulty]
+    solved = progress.solved_slugs()
+    if args.unsolved:
+        probs = [p for p in probs if p["slug"] not in solved]
+    done = sum(1 for p in probs if p["slug"] in solved)
+    pre = ", ".join(roadmap.PREREQS.get(topic, [])) or "none (start here)"
+    print(f"{topic}  ({roadmap.PRESET_NAMES[preset]})  -  prereqs: {pre}")
+    print(f"{len(probs)} problems ({done} solved)\n")
+    for p in probs:
+        mark = "[x]" if p["slug"] in solved else "[ ]"
+        print(f"  {mark} {p['number']:>4}  {p['difficulty']:<6}  {p['title']}")
+    return 0
+
+
 def cmd_clean(args: argparse.Namespace, config: dict[str, Any]) -> int:
     target = Path(args.dir) if args.dir else Path.cwd()
     if not target.is_dir():
@@ -296,6 +376,9 @@ def build_parser() -> argparse.ArgumentParser:
     pf.add_argument("-d", "--difficulty", choices=VALID_DIFFICULTIES + ("any",),
                     help="filter difficulty for a random fetch")
     pf.add_argument("-l", "--lang", help="language: python or javascript")
+    pf.add_argument("-t", "--topic",
+                    help="roadmap topic, e.g. \"two pointers\" or \"1-d dp\"")
+    pf.add_argument("-p", "--preset", help="blind75 | neetcode150 | all")
     pf.set_defaults(func=cmd_fetch)
 
     pt = sub.add_parser("test", help="run example test cases against your solution")
@@ -320,6 +403,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     pst = sub.add_parser("stats", help="show solve stats and streak")
     pst.set_defaults(func=cmd_stats)
+
+    pto = sub.add_parser("roadmap", help="show the NeetCode roadmap and your progress")
+    pto.add_argument("-p", "--preset", help="blind75 | neetcode150 | all")
+    pto.set_defaults(func=cmd_roadmap)
+
+    pls = sub.add_parser("list", help="list the problems in a roadmap topic")
+    pls.add_argument("topic", help="topic, e.g. \"two pointers\" or \"1-d dp\"")
+    pls.add_argument("-d", "--difficulty", choices=VALID_DIFFICULTIES + ("any",),
+                     help="filter by difficulty")
+    pls.add_argument("-p", "--preset", help="blind75 | neetcode150 | all")
+    pls.add_argument("--unsolved", action="store_true", help="only show unsolved problems")
+    pls.set_defaults(func=cmd_list)
 
     pg = sub.add_parser("gui", help="launch the point-and-click GUI")
     pg.set_defaults(func=cmd_gui)

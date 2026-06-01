@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leetcode-cli"
-version = "1.0.0"
-description = "A daily LeetCode workflow CLI: fetch, test, and submit problems."
+version = "1.2.0"
+description = "A daily LeetCode workflow CLI: fetch, test, submit, and a NeetCode roadmap."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []  # standard library only
@@ -15,3 +15,6 @@ leetcode = "leetcode_cli.cli:main"
 
 [tool.setuptools]
 packages = ["leetcode_cli"]
+
+[tool.setuptools.package-data]
+leetcode_cli = ["neetcode_roadmap.json", "icon.png", "icon.ico"]

@@ -16,8 +16,10 @@ echo.
 echo Building EXE...
 py -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name LeetCodeCLI ^
+  --icon "%~dp0leetcode_cli\icon.ico" ^
   --paths "%~dp0" ^
   --collect-submodules leetcode_cli ^
+  --collect-data leetcode_cli ^
   gui_app.py
 
 if errorlevel 1 (

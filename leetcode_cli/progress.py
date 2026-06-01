@@ -45,6 +45,11 @@ def record_solve(number: int, slug: str, title: str, difficulty: str) -> dict[st
     return data
 
 
+def solved_slugs() -> set[str]:
+    """Set of title-slugs the user has solved (used for per-topic progress)."""
+    return {e["slug"] for e in _load()["solved"] if e.get("slug")}
+
+
 def _solved_dates() -> set[date]:
     dates: set[date] = set()
     for entry in _load()["solved"]:
