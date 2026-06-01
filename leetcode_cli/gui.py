@@ -198,19 +198,27 @@ class App:
         style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10))
 
     def _set_window_icon(self) -> None:
-        png = Path(__file__).with_name("icon.png")
-        ico = Path(__file__).with_name("icon.ico")
+        # Use icon data embedded in the source (base64) rather than reading a
+        # bundled file -- the latter isn't reliably found inside a frozen exe,
+        # which left the title bar showing the default icon.
         try:
-            if png.exists():
-                self._icon_img = tk.PhotoImage(file=str(png))  # keep a reference
-                self.root.iconphoto(True, self._icon_img)
-        except tk.TclError:
-            pass
+            from . import _icondata
+        except ImportError:
+            return
         try:
-            if ico.exists() and sys.platform.startswith("win"):
-                self.root.iconbitmap(default=str(ico))
-        except tk.TclError:
+            self._icon_img = tk.PhotoImage(data=_icondata.PNG_B64)  # keep ref
+            self.root.iconphoto(True, self._icon_img)
+        except (tk.TclError, AttributeError):
             pass
+        if sys.platform.startswith("win"):
+            try:
+                import base64
+                import tempfile
+                ico_path = Path(tempfile.gettempdir()) / "leetcode_gui.ico"
+                ico_path.write_bytes(base64.b64decode(_icondata.ICO_B64))
+                self.root.iconbitmap(default=str(ico_path))
+            except (tk.TclError, OSError, AttributeError):
+                pass
 
     def _card(self, parent: tk.Misc, title: str) -> ttk.Frame:
         lf = ttk.Labelframe(parent, text=title, style="Card.TLabelframe")

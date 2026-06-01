@@ -1,23 +1,27 @@
-"""Generate the app icon (leetcode_cli/icon.png and icon.ico) with no deps.
+"""Generate the app icon with no third-party deps.
 
-A rounded blue square with a white checkmark. Re-run to regenerate:
+Produces, in leetcode_cli/:
+  icon.png        64x64 PNG (used for PyInstaller and previews)
+  icon.ico        multi-size BMP-based ICO (16/32/48/64) -- what Windows
+                  title bars want; PNG-encoded ICOs often don't render small
+  _icondata.py    base64 of both, so the GUI can set its window icon WITHOUT
+                  depending on a bundled file being found at runtime (the
+                  frozen-exe failure mode)
 
-    py tools/make_icon.py
+Re-run:  py tools/make_icon.py
 """
 
 from __future__ import annotations
 
+import base64
 import struct
 import zlib
 from pathlib import Path
 
-SIZE = 64
 OUT_DIR = Path(__file__).resolve().parent.parent / "leetcode_cli"
-
-# Colours (R, G, B)
-BG = (47, 111, 235)       # accent blue
-BG_EDGE = (31, 95, 208)   # slightly darker edge
+BG = (47, 111, 235)        # accent blue
 CHECK = (255, 255, 255)
+SIZES = [16, 32, 48, 64]
 
 
 def _dist_point_seg(px, py, x1, y1, x2, y2):
@@ -39,65 +43,85 @@ def _in_rounded_rect(x, y, w, h, r, margin):
     return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
-def build_pixels():
-    w = h = SIZE
-    # checkmark polyline points (scaled to 64)
-    seg = [(15, 34, 27, 46), (27, 46, 49, 19)]
-    thick = 5.0
+def render(size: int):
+    s = size / 64.0
+    seg = [(15 * s, 34 * s, 27 * s, 46 * s), (27 * s, 46 * s, 49 * s, 19 * s)]
+    thick = max(1.4, 5.2 * s)
+    r = max(2, round(14 * s))
+    margin = max(1, round(4 * s))
     rows = []
-    for y in range(h):
+    for y in range(size):
         row = []
-        for x in range(w):
-            inside = _in_rounded_rect(x, y, w, h, r=14, margin=4)
-            on_check = any(_dist_point_seg(x, y, *s) <= thick for s in seg)
+        for x in range(size):
+            inside = _in_rounded_rect(x, y, size, size, r, margin)
+            on_check = any(_dist_point_seg(x, y, *sg) <= thick for sg in seg)
             if inside and on_check:
                 row.append((*CHECK, 255))
             elif inside:
-                # subtle vertical shade for depth
-                edge = _in_rounded_rect(x, y, w, h, r=14, margin=4) and not \
-                    _in_rounded_rect(x, y, w, h, r=12, margin=6)
-                row.append((*(BG_EDGE if edge else BG), 255))
+                row.append((*BG, 255))
             else:
                 row.append((0, 0, 0, 0))
         rows.append(row)
     return rows
 
 
+# ---- PNG ----
 def _png_chunk(tag: bytes, data: bytes) -> bytes:
     return (struct.pack(">I", len(data)) + tag + data +
             struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
 
 def encode_png(rows) -> bytes:
-    h = len(rows)
-    w = len(rows[0])
+    h, w = len(rows), len(rows[0])
     raw = bytearray()
     for row in rows:
-        raw.append(0)  # filter type 0
+        raw.append(0)
         for (r, g, b, a) in row:
             raw += bytes((r, g, b, a))
-    sig = b"\x89PNG\r\n\x1a\n"
-    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
-    return (sig + _png_chunk(b"IHDR", ihdr) +
+    return (b"\x89PNG\r\n\x1a\n" +
+            _png_chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) +
             _png_chunk(b"IDAT", zlib.compress(bytes(raw), 9)) +
             _png_chunk(b"IEND", b""))
 
 
-def wrap_ico(png: bytes) -> bytes:
-    # ICONDIR + one ICONDIRENTRY pointing at a PNG-encoded image
-    icondir = struct.pack("<HHH", 0, 1, 1)
-    w = SIZE if SIZE < 256 else 0
-    entry = struct.pack("<BBBBHHII", w, w, 0, 0, 1, 32, len(png), 22)
-    return icondir + entry + png
+# ---- BMP-based ICO ----
+def _bmp_image(rows) -> bytes:
+    h, w = len(rows), len(rows[0])
+    header = struct.pack("<IiiHHIIiiII", 40, w, h * 2, 1, 32, 0, 0, 0, 0, 0, 0)
+    xor = bytearray()
+    for y in range(h - 1, -1, -1):           # bottom-up, BGRA
+        for (r, g, b, a) in rows[y]:
+            xor += bytes((b, g, r, a))
+    and_row = ((w + 31) // 32) * 4            # 1bpp mask, padded; all zero
+    andmask = b"\x00" * (and_row * h)
+    return header + bytes(xor) + andmask
+
+
+def build_ico(sizes) -> bytes:
+    images = [_bmp_image(render(s)) for s in sizes]
+    icondir = struct.pack("<HHH", 0, 1, len(images))
+    entries = bytearray()
+    offset = 6 + 16 * len(images)
+    for s, img in zip(sizes, images):
+        wb = s if s < 256 else 0
+        entries += struct.pack("<BBBBHHII", wb, wb, 0, 0, 1, 32, len(img), offset)
+        offset += len(img)
+    return icondir + bytes(entries) + b"".join(images)
 
 
 def main() -> int:
-    rows = build_pixels()
-    png = encode_png(rows)
+    png = encode_png(render(64))
+    ico = build_ico(SIZES)
     (OUT_DIR / "icon.png").write_bytes(png)
-    (OUT_DIR / "icon.ico").write_bytes(wrap_ico(png))
-    print(f"wrote {OUT_DIR / 'icon.png'} ({len(png)} bytes)")
-    print(f"wrote {OUT_DIR / 'icon.ico'}")
+    (OUT_DIR / "icon.ico").write_bytes(ico)
+    data_py = (
+        '"""Auto-generated by tools/make_icon.py -- do not edit."""\n\n'
+        f'PNG_B64 = "{base64.b64encode(png).decode()}"\n\n'
+        f'ICO_B64 = "{base64.b64encode(ico).decode()}"\n'
+    )
+    (OUT_DIR / "_icondata.py").write_text(data_py, encoding="utf-8")
+    print(f"icon.png {len(png)}B, icon.ico {len(ico)}B ({len(SIZES)} sizes), "
+          f"_icondata.py written")
     return 0
 
 
