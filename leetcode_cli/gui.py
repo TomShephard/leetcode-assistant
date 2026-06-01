@@ -366,7 +366,7 @@ class App:
                    ).pack(side="right")
         ttk.Label(bar, text="List:", style="TLabel").pack(side="right", padx=(0, 4))
         preset_box = ttk.Combobox(
-            bar, textvariable=self.preset_var, width=22, state="readonly",
+            bar, textvariable=self.preset_var, width=26, state="readonly",
             values=[name for _, name in roadmap.PRESETS] + [LEETCODE_VIEW])
         preset_box.pack(side="right", padx=6)
         preset_box.bind("<<ComboboxSelected>>", lambda e: self._on_preset_changed())
@@ -488,6 +488,7 @@ class App:
     def _populate_leetcode(self) -> None:
         solved = progress.solved_slugs()
         self.topic_problems = {}
+        missing: list[tuple[str, str]] = []
         for name, slug in data.LEETCODE_TOPICS:
             cached = self.leetcode_cache.get(slug)
             if cached is not None:
@@ -495,9 +496,52 @@ class App:
                 done = sum(1 for q in cached if q["slug"] in solved)
                 val = f"{done}/{len(cached)}"
             else:
-                val = "-"
+                val = "..."
+                missing.append((name, slug))
             self.topic_tree.insert("", "end", iid=name, text=name, values=(val,))
-        self.status_var.set("All LeetCode topics -- pick one to load its problems.")
+        if missing:
+            # Load every topic's counts up front (background; cached for a week).
+            self._load_all_leetcode_counts(missing)
+        else:
+            self.status_var.set("All LeetCode topics loaded.")
+
+    def _load_all_leetcode_counts(self, topics: list[tuple[str, str]]) -> None:
+        """Fetch each LeetCode topic's problem list in the background and fill in
+        its count. Runs off the busy-gate so the rest of the app stays usable."""
+        if getattr(self, "_loading_counts", False):
+            return
+        self._loading_counts = True
+        self.status_var.set(f"Loading counts for {len(topics)} LeetCode topics...")
+        include_paid = bool(self.config.get("include_paid", False))
+
+        def worker() -> None:
+            for name, slug in topics:
+                try:
+                    qs = data.leetcode_topic_questions(slug)
+                except Exception:  # noqa: BLE001
+                    qs = []
+                if not include_paid:
+                    qs = [q for q in qs if not q["paid"]]
+                self._post(lambda n=name, s=slug, q=qs: self._apply_leetcode_count(n, s, q))
+            self._post(self._finish_count_load)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_leetcode_count(self, name: str, slug: str,
+                              qs: list[dict[str, Any]]) -> None:
+        self.leetcode_cache[slug] = qs
+        if self._current_mode() == "leetcode":
+            self.topic_problems[name] = qs
+        if self.topic_tree.exists(name):
+            solved = progress.solved_slugs()
+            done = sum(1 for q in qs if q["slug"] in solved)
+            self.topic_tree.item(name, values=(f"{done}/{len(qs)}",))
+        if self.current_topic == name and self._current_mode() == "leetcode":
+            self._refresh_question_list()
+
+    def _finish_count_load(self) -> None:
+        self._loading_counts = False
+        self.status_var.set("All LeetCode topics loaded.")
 
     def _on_topic_selected(self, _event: Any) -> None:
         sel = self.topic_tree.selection()

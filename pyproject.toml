@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leetcode-cli"
-version = "1.2.0"
+version = "1.2.1"
 description = "A daily LeetCode workflow CLI: fetch, test, submit, and a NeetCode roadmap."
 readme = "README.md"
 requires-python = ">=3.9"
