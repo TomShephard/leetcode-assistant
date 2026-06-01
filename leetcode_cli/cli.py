@@ -176,12 +176,13 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     _print_test_report(report)
 
     if report.ran and not report.passed:
-        if not args.force:
-            print("\nNot all tests passed. Fix them, or use `--force` to submit anyway.")
-            return 1
-        print("\n--force given: submitting despite failing tests.")
-    elif not report.ran and not args.force:
-        # No runnable cases. Ask the user to confirm.
+        # Strict gate: failing tests can never be committed.
+        print("\nTests did not pass, so nothing was committed. "
+              "Fix the failing cases and run submit again.")
+        return 1
+    if not report.ran:
+        # No runnable cases (e.g. tree/linked-list/in-place problems). These
+        # can't be auto-verified, so ask the user to confirm before committing.
         print("\nThere are no automatic test cases to verify this solution.")
         try:
             answer = input("Submit anyway? [y/N]: ").strip().lower()
@@ -303,8 +304,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     ps = sub.add_parser("submit", help="test, then commit + push a passing solution")
     ps.add_argument("file", nargs="?", help="solution file (defaults to last fetched)")
-    ps.add_argument("--force", action="store_true",
-                    help="submit even if tests fail or are unavailable")
     ps.add_argument("--cleanup", action="store_true",
                     help="delete the local file after a successful commit")
     ps.add_argument("--keep", action="store_true",

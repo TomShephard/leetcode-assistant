@@ -523,16 +523,24 @@ class App:
                 self.log(f"Error running tests: {err}\n", "fail")
                 return
             passed = self._show_test_report(report, None)
-            proceed = True
             if report.ran and not passed:
-                proceed = messagebox.askyesno("Tests failed", "Not all tests passed. Submit anyway?")
-            elif not report.ran:
-                proceed = messagebox.askyesno(
-                    "No test cases",
-                    "There are no automatic test cases to verify this solution. Submit anyway?")
-            if not proceed:
-                self.log("Submit cancelled.\n", "muted")
+                # Strict gate: failing tests can never be committed.
+                self.log("Tests did not pass - nothing was committed. "
+                         "Fix the failing cases and submit again.\n", "fail")
+                messagebox.showerror(
+                    "Tests failed",
+                    "This solution did not pass its tests, so it was not "
+                    "committed.\n\nFix the failing cases and try again.")
+                self.status_var.set("Submit blocked: tests failed.")
                 return
+            if not report.ran:
+                # No auto-runnable cases: can't verify, so confirm first.
+                if not messagebox.askyesno(
+                    "No test cases",
+                    "There are no automatic test cases to verify this solution. "
+                    "Submit anyway?"):
+                    self.log("Submit cancelled.\n", "muted")
+                    return
             self._do_commit(path, meta, repo_url)
 
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)

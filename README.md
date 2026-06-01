@@ -146,9 +146,11 @@ solutions/{difficulty}/{number}-{slug}.{ext}
 commit: Solve {number}: {Title} ({Difficulty})
 ```
 
-If a problem has no auto-extractable example cases, `submit` will ask you to
-confirm before committing. Use `--force` to submit despite failing or missing
-tests.
+**Submit only commits when the tests pass.** If any example test fails, submit
+refuses and commits nothing -- there is no override; fix the solution and try
+again. If a problem has no auto-extractable example cases (e.g. tree or
+linked-list inputs that the tool can't run), submit can't verify it, so it asks
+you to confirm before committing.
 
 `test` and `submit` operate on the last problem you fetched in the current
 directory by default; pass a filename to target a specific one
@@ -174,7 +176,8 @@ directory by default; pass a filename to target a specific one
   arguments and compare the return value" shape, with order-insensitive list
   comparison and a small float tolerance. Problems that mutate inputs in place,
   use custom classes (`ListNode`, `TreeNode`), or accept multiple valid answers
-  won't verify automatically -- solve and `submit --force` those.
+  won't verify automatically -- submit treats these as "no test cases" and asks
+  you to confirm before committing.
 - Premium/locked problems can't be fetched (no public content).
 - Config, progress, and the local clone of your repo all live under
   `~/.leetcode-cli/`.
