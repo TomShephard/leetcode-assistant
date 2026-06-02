@@ -104,7 +104,7 @@ def commit_and_push(
     _run(["git", "add", rel_path], cwd=repo)
 
     # Regenerate the solutions-repo README from the local solve log so it
-    # always reflects the latest history (date / topic / optimal-or-not).
+    # always reflects the latest history (date / topic / time).
     try:
         from . import progress, readme
         data = progress._load()

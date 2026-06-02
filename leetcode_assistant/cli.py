@@ -224,23 +224,13 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     lang = meta.get("language", "python")
     ext = SUPPORTED_LANGUAGES.get(lang, {}).get("ext", "txt")
 
-    # Gauge whether the solution uses an efficient approach.
-    from . import complexity, roadmap
-    print("\nChecking solution complexity (this can take a few seconds)...")
-    cx = complexity.estimate(path, meta)
-    if cx.verdict == "optimal":
-        print(f"\nComplexity: {cx.summary()} -- looks optimal.")
-    elif cx.verdict == "suboptimal":
-        print(f"\nComplexity: {cx.summary()} (optimal time is {cx.optimal}) -- "
-              "looks brute-force / half-solved. (Committing anyway.)")
-    elif cx.measured != "unknown":
-        print(f"\nComplexity: {cx.summary()} (no known-optimal to compare).")
+    from . import roadmap
     topic = roadmap.topic_for_slug(meta["slug"]) or ""
 
     # Record BEFORE committing so the repo README includes this solve.
     progress.record_solve(
         meta["number"], meta["slug"], meta["title"], meta["difficulty"],
-        topic=topic, optimality=cx.verdict, url=meta.get("url"))
+        topic=topic, url=meta.get("url"))
     # Spaced-repetition: schedule (or, with --rating, advance) the refresh.
     rating = getattr(args, "rating", None)
     rmeta = {**meta, "topic": topic}
@@ -369,8 +359,6 @@ def cmd_stats(args: argparse.Namespace, config: dict[str, Any]) -> int:
     s = progress.stats()
     print(f"Total solved: {s['total']}")
     print(f"Current streak: {s['streak']} day(s)   (longest: {s['longest_streak']})")
-    if s["total"]:
-        print(f"Solved optimally: {s['optimal']}/{s['total']}")
     if s["by_difficulty"]:
         print("By difficulty:")
         for diff in ("easy", "medium", "hard"):

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leetcode-assistant"
-version = "1.8.2"
-description = "Leetcode Assistant: fetch, solve in-app, test, submit, with a NeetCode roadmap and complexity checks."
+version = "1.9.0"
+description = "Leetcode Assistant: fetch, solve in-app, test, submit, with a NeetCode roadmap, spaced-repetition refreshes, and topic tests."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []  # standard library only

@@ -10,7 +10,7 @@ A desktop app (and CLI) for a daily LeetCode habit. Fetch a problem, **solve it
 in-app** in a built-in code editor, run it against the problem's own example
 test cases, and -- when it passes -- commit and push it to your private GitHub
 solutions repo. It tracks a local solve streak, follows the NeetCode roadmap,
-gauges whether your solution is optimal or brute-force, and keeps a presentable
+schedules spaced-repetition refreshes and topic tests, and keeps a presentable
 auto-updating README in your solutions repo.
 
 ![Leetcode Assistant](docs/screenshot.png)
@@ -145,25 +145,17 @@ question set, result, completion time, and a collapsible per-problem log.
 ## Stats
 
 The **Stats** tab shows a GitHub-style activity heatmap, your current and
-longest streaks, per-difficulty counts, and your optimal-solution ratio.
+longest streaks, and per-difficulty counts.
 
 Stuck on setup? `leetcode doctor` checks Python, git, GitHub auth, network, and
 your config, and tells you exactly what's missing.
 
-## Complexity check and a self-updating solutions README
+## Self-updating solutions README
 
-On submit (once the tests pass), the tool estimates the solution's time
-complexity *empirically* -- it runs your code on inputs of growing size and
-fits the growth curve -- and compares it against the problem's known-optimal
-class. A brute-force Two Sum (nested loops, O(n^2)) is flagged **suboptimal**
-("half solved"); the hashing version (O(n)) is **optimal**. It's a heuristic
-(Python solutions whose first argument is a list, for problems with a known
-target complexity); everything else is reported without a verdict.
-
-Each submission also rewrites a presentable `README.md` in your **solutions
-repo** from your full solve log: summary badges (solved / streak / per-
-difficulty / optimal ratio) and a table of every problem with its date,
-difficulty, topic, and whether it was solved optimally.
+Each submission rewrites a presentable `README.md` in your **solutions repo**
+from your full solve log: summary badges (solved / streak / per-difficulty) and
+a table of every problem with its date, difficulty, topic, and solve time,
+followed by your review schedule and any passed topic tests.
 
 ## Standalone EXE (no Python needed)
 

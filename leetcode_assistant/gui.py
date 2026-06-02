@@ -1036,10 +1036,9 @@ class App:
 
     def _refresh_stats(self) -> None:
         s = progress.stats()
-        opt = f"  |  optimal {s['optimal']}/{s['total']}" if s["total"] else ""
         self.stats_summary_var.set(
             f"Solved: {s['total']}    Current streak: {s['streak']}    "
-            f"Longest streak: {s['longest_streak']}{opt}")
+            f"Longest streak: {s['longest_streak']}")
         d = s["by_difficulty"]
         self.stats_diff_var.set(
             f"Easy {d.get('easy', 0):>4}    "
@@ -1642,9 +1641,11 @@ class App:
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
 
     def _rating_for(self, slug: str) -> str | None:
-        """If this problem is already tracked for review, ask how the blind
-        retest went (spaced repetition). First solves return None."""
-        if not slug or not progress.has_review(slug):
+        """Ask how a blind retest went only when the problem is actually DUE for
+        review. A first solve -- or a re-solve before the review is due (e.g. a
+        brute-force warm-up then the optimal version) -- returns None, so the
+        spaced-repetition clock is never advanced just for practising twice."""
+        if not slug or not progress.is_review_due(slug):
             return None
         return self._ask_confidence()
 
@@ -1764,19 +1765,16 @@ class App:
                    seconds: int | None = None, rating: str | None = None,
                    test_ctx: dict[str, Any] | None = None) -> None:
         ext = SUPPORTED_LANGUAGES.get(meta.get("language", "python"), {}).get("ext", "txt")
-        self.log("Tests passed. Checking solution complexity "
-                 "(this can take a few seconds), then committing...\n", "info")
-        self.status_var.set("Checking complexity, please wait...")
+        self.log("Tests passed. Committing...\n", "info")
+        self.status_var.set("Committing, please wait...")
 
         def work() -> Any:
-            from . import complexity, roadmap
-            self._post(lambda: self.status_var.set("Checking complexity, please wait..."))
-            cx = complexity.estimate(path, meta)
+            from . import roadmap
             topic = roadmap.topic_for_slug(meta["slug"]) or ""
             # record BEFORE commit so the repo README includes this solve
             progress.record_solve(
                 meta["number"], meta["slug"], meta["title"], meta["difficulty"],
-                topic=topic, optimality=cx.verdict, url=meta.get("url"), seconds=seconds)
+                topic=topic, url=meta.get("url"), seconds=seconds)
             review = progress.schedule_review(
                 meta["slug"], {**meta, "topic": topic}, rating=rating)
             test_result = None
@@ -1788,20 +1786,13 @@ class App:
                 repo_url, path,
                 number=meta["number"], title=meta["title"],
                 difficulty=meta["difficulty"], slug=meta["slug"], language_ext=ext)
-            return result, cx, review, test_result
+            return result, review, test_result
 
         def done(payload: Any, err: Exception | None) -> None:
             if err:
                 self.log(f"Git error: {err}\n", "fail")
                 return
-            result, cx, review, test_result = payload
-            if cx.verdict == "optimal":
-                self.log(f"Complexity: {cx.summary()} -- optimal.\n", "pass")
-            elif cx.verdict == "suboptimal":
-                self.log(f"Complexity: {cx.summary()} (optimal time is {cx.optimal}) "
-                         "-- looks brute-force/half-solved.\n", "fail")
-            elif cx.measured != "unknown":
-                self.log(f"Complexity: {cx.summary()}.\n", "muted")
+            result, review, test_result = payload
             if review:
                 self.log(f"Next refresh: {review['due']} "
                          f"({progress.level_name(review['level'])}).\n", "info")

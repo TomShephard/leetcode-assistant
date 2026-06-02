@@ -26,7 +26,7 @@ def _save(data: dict[str, Any]) -> None:
 
 
 def record_solve(number: int, slug: str, title: str, difficulty: str,
-                 topic: str | None = None, optimality: str | None = None,
+                 topic: str | None = None,
                  url: str | None = None, seconds: int | None = None) -> dict[str, Any]:
     data = _load()
     today = date.today().isoformat()
@@ -37,7 +37,6 @@ def record_solve(number: int, slug: str, title: str, difficulty: str,
         "title": title,
         "difficulty": difficulty,
         "topic": topic or "",
-        "optimality": optimality or "unknown",
         "url": url or f"https://leetcode.com/problems/{slug}/",
     }
     if seconds is not None and seconds > 0:
@@ -172,6 +171,24 @@ def schedule_review(slug: str, meta: dict[str, Any],
     reviews = data.setdefault("reviews", {})
     iv = review_intervals()
     existing = reviews.get(slug)
+    today = date.today()
+
+    # Re-solving the same problem BEFORE its review is due (e.g. a brute-force
+    # warm-up followed immediately by the optimal version) is just practice --
+    # it must not advance the spaced-repetition clock. Leave the schedule as it
+    # is and only bump the practice counter. The level can only move on a
+    # genuine retest, i.e. once the problem is actually due.
+    if existing and rating is None:
+        try:
+            due = datetime.strptime(existing["due"], "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            due = today  # malformed -> treat as due so it can be re-anchored
+        if today < due:
+            existing["reps"] = existing.get("reps", 0) + 1
+            existing["last_practiced"] = today.isoformat()
+            _save(data)
+            return existing
+
     level = existing.get("level", 0) if existing else 0
 
     if rating == "aced":
@@ -181,7 +198,6 @@ def schedule_review(slug: str, meta: dict[str, Any],
     # 'good' or None keep the current level (None on a first solve -> 0)
 
     days = iv[min(level, len(iv) - 1)]
-    today = date.today()
     entry = {
         "level": level,
         "interval_days": days,
@@ -206,6 +222,21 @@ def all_reviews() -> dict[str, dict[str, Any]]:
 
 def has_review(slug: str) -> bool:
     return slug in _load().get("reviews", {})
+
+
+def is_review_due(slug: str, today: date | None = None) -> bool:
+    """True only if this problem has a review whose due date has arrived. Used
+    to decide whether a re-solve is a genuine spaced-repetition retest (rate
+    confidence, advance the level) or just practice (leave the schedule alone)."""
+    r = _load().get("reviews", {}).get(slug)
+    if not r:
+        return False
+    today = today or date.today()
+    try:
+        due = datetime.strptime(r["due"], "%Y-%m-%d").date()
+    except (KeyError, ValueError):
+        return True  # malformed schedule -> treat as due so it gets fixed
+    return due <= today
 
 
 def due_reviews(today: date | None = None) -> list[dict[str, Any]]:
@@ -338,18 +369,14 @@ def stats() -> dict[str, Any]:
     data = _load()
     solved = data["solved"]
     by_diff: dict[str, int] = {}
-    optimal = 0
     for e in solved:
         by_diff[e.get("difficulty", "unknown")] = by_diff.get(
             e.get("difficulty", "unknown"), 0
         ) + 1
-        if e.get("optimality") == "optimal":
-            optimal += 1
     return {
         "total": len(solved),
         "by_difficulty": by_diff,
         "streak": current_streak(),
         "longest_streak": longest_streak(),
-        "optimal": optimal,
         "last": solved[-1] if solved else None,
     }

@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.9.0
+- **Removed the complexity / "optimal vs brute-force" check.** Empirically
+  timing a solution is unreliable (it only works for some Python problems and
+  can be fooled -- e.g. a brute-force duplicate finder that returns early on
+  random input looked O(1)), and a wrong verdict baked into your permanent
+  solutions README is worse than none. The Approach column, the "solved
+  optimally" badge/summary, and the Stats optimal ratio are gone; submitting is
+  now faster (no probe step).
+- **Smarter refresh scheduling.** Re-solving a problem before its review is due
+  (e.g. a brute-force warm-up immediately followed by the optimal version) no
+  longer advances the spaced-repetition clock -- that counted as a retest and
+  could jump a brand-new problem straight to a 30-day interval. The confidence
+  prompt and level-up now only happen on a genuine *due* retest; earlier
+  re-solves just count as practice and leave the schedule untouched.
+
 ## v1.8.2
 - Editor: **Ctrl+Backspace** deletes the previous word and **Ctrl+Delete** the
   next one, one token at a time (word / whitespace / symbol run), like a real

@@ -9,22 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from leetcode_assistant import complexity, data, progress, readme, roadmap, scaffold
-
-
-class TestComplexityClassification(unittest.TestCase):
-    def test_slope_to_class(self):
-        self.assertEqual(complexity._slope_to_class(0.1), "O(1)")
-        self.assertEqual(complexity._slope_to_class(1.0), "O(n)")
-        self.assertEqual(complexity._slope_to_class(1.5), "O(n log n)")
-        self.assertEqual(complexity._slope_to_class(2.0), "O(n^2)")
-        self.assertEqual(complexity._slope_to_class(3.0), "O(n^3)")
-
-    def test_verdict(self):
-        self.assertEqual(complexity._verdict("O(n)", "O(n)"), "optimal")
-        self.assertEqual(complexity._verdict("O(n^2)", "O(n)"), "suboptimal")
-        self.assertEqual(complexity._verdict("O(1)", "O(n)"), "optimal")
-        self.assertEqual(complexity._verdict("O(n)", None), "unknown")
+from leetcode_assistant import data, progress, readme, roadmap, scaffold
 
 
 class TestRoadmap(unittest.TestCase):
@@ -50,18 +35,19 @@ class TestReadme(unittest.TestCase):
     def test_generate(self):
         entries = [
             {"date": "2026-01-01", "number": 1, "slug": "two-sum", "title": "Two Sum",
-             "difficulty": "easy", "topic": "Arrays & Hashing", "optimality": "optimal",
+             "difficulty": "easy", "topic": "Arrays & Hashing",
              "url": "https://leetcode.com/problems/two-sum/", "seconds": 125},
             {"date": "2026-01-02", "number": 2, "slug": "x", "title": "X",
-             "difficulty": "medium", "topic": "Stack", "optimality": "suboptimal"},
+             "difficulty": "medium", "topic": "Stack"},
         ]
         md = readme.generate(entries, streak=2)
         self.assertIn("# LeetCode Solutions", md)
         self.assertIn("Two Sum", md)
-        self.assertIn("Optimal", md)
-        self.assertIn("Suboptimal", md)
         self.assertIn("2m 5s", md)            # 125 seconds formatted
         self.assertIn("img.shields.io", md)   # badges present
+        # the approach/optimality column has been removed
+        self.assertNotIn("Approach", md)
+        self.assertNotIn("Suboptimal", md)
 
 
 class TestScaffoldSignatures(unittest.TestCase):
@@ -106,7 +92,7 @@ class TestProgress(unittest.TestCase):
 
     def test_record_and_slugs(self):
         progress.record_solve(1, "two-sum", "Two Sum", "easy",
-                              topic="Arrays & Hashing", optimality="optimal")
+                              topic="Arrays & Hashing")
         self.assertIn("two-sum", progress.solved_slugs())
 
     def test_longest_streak(self):
@@ -177,6 +163,28 @@ class TestReviewSRS(unittest.TestCase):
         due = progress.due_reviews()
         self.assertEqual(due[0]["slug"], "x")
         self.assertEqual(due[0]["days_overdue"], 2)
+
+    def test_resolve_before_due_does_not_advance(self):
+        # First solve schedules level 0 / due +7. Re-solving the same problem
+        # before it's due (no rating) must NOT advance the level or push the
+        # date out -- it's just practice.
+        r1 = progress.schedule_review("two-sum", self._meta(), rating=None)
+        self.assertEqual(r1["level"], 0)
+        due_after_first = r1["due"]
+        r2 = progress.schedule_review("two-sum", self._meta(), rating=None)
+        self.assertEqual(r2["level"], 0)
+        self.assertEqual(r2["due"], due_after_first)   # unchanged
+        self.assertEqual(r2.get("reps"), 2)            # but practice counted
+
+    def test_is_review_due(self):
+        from datetime import date, timedelta
+        progress.schedule_review("x", self._meta())
+        self.assertFalse(progress.is_review_due("x"))      # due in 7 days
+        self.assertFalse(progress.is_review_due("nope"))   # untracked
+        data = json.loads(progress.PROGRESS_PATH.read_text())
+        data["reviews"]["x"]["due"] = (date.today() - timedelta(days=1)).isoformat()
+        progress.PROGRESS_PATH.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(progress.is_review_due("x"))
 
     def test_readme_review_section(self):
         from datetime import date

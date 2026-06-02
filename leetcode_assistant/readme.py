@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 _DIFF_ORDER = {"easy": 0, "medium": 1, "hard": 2}
-_APPROACH = {"optimal": "Optimal", "suboptimal": "Suboptimal"}
 
 
 def _fmt_time(seconds: Any) -> str:
@@ -124,16 +123,9 @@ def generate(entries: list[dict[str, Any]], streak: int = 0,
              tests: dict[str, Any] | None = None) -> str:
     total = len(entries)
     by_diff = {"easy": 0, "medium": 0, "hard": 0}
-    optimal = suboptimal = 0
     for e in entries:
         by_diff[e.get("difficulty", "")] = by_diff.get(e.get("difficulty", ""), 0) + 1
-        opt = e.get("optimality")
-        if opt == "optimal":
-            optimal += 1
-        elif opt == "suboptimal":
-            suboptimal += 1
 
-    graded = optimal + suboptimal
     lines: list[str] = []
     lines.append("# LeetCode Solutions")
     lines.append("")
@@ -144,19 +136,11 @@ def generate(entries: list[dict[str, Any]], streak: int = 0,
         _badge("Medium", str(by_diff["medium"]), "9a6700"),
         _badge("Hard", str(by_diff["hard"]), "cf222e"),
     ]
-    if graded:
-        badges.append(_badge("Optimal", f"{optimal}/{graded}", "2f6feb"))
     lines.append(" ".join(badges))
     lines.append("")
     lines.append("Auto-generated log of my LeetCode solutions. "
                  "Updated automatically on every submission.")
     lines.append("")
-
-    if graded:
-        pct = round(100 * optimal / graded)
-        lines.append(f"**Solved optimally:** {optimal}/{graded} ({pct}%)  -  "
-                     f"flagged as brute-force/suboptimal: {suboptimal}")
-        lines.append("")
 
     # 1) Log (most recent first)
     ordered = sorted(
@@ -166,16 +150,15 @@ def generate(entries: list[dict[str, Any]], streak: int = 0,
     )
     lines.append("## Log")
     lines.append("")
-    lines.append("| Date | # | Problem | Difficulty | Topic | Approach | Time |")
-    lines.append("|------|---|---------|------------|-------|----------|------|")
+    lines.append("| Date | # | Problem | Difficulty | Topic | Time |")
+    lines.append("|------|---|---------|------------|-------|------|")
     for e in ordered:
         url = e.get("url") or f"https://leetcode.com/problems/{e.get('slug','')}/"
         title = e.get("title", e.get("slug", "?"))
         diff = (e.get("difficulty", "") or "").capitalize() or "-"
         topic = e.get("topic") or "-"
-        approach = _APPROACH.get(e.get("optimality", ""), "-")
         lines.append(f"| {e.get('date','')} | {e.get('number','')} | "
-                     f"[{title}]({url}) | {diff} | {topic} | {approach} | "
+                     f"[{title}]({url}) | {diff} | {topic} | "
                      f"{_fmt_time(e.get('seconds'))} |")
     lines.append("")
 
