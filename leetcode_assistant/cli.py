@@ -241,6 +241,11 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     progress.record_solve(
         meta["number"], meta["slug"], meta["title"], meta["difficulty"],
         topic=topic, optimality=cx.verdict, url=meta.get("url"))
+    # Spaced-repetition: schedule (or, with --rating, advance) the refresh.
+    rating = getattr(args, "rating", None)
+    rmeta = {**meta, "topic": topic}
+    review = progress.schedule_review(meta["slug"], rmeta, rating=rating)
+    print(f"Next refresh: {review['due']} ({progress.level_name(review['level'])}).")
 
     print("\nCommitting to your solutions repo ...")
     try:
@@ -383,17 +388,22 @@ def cmd_doctor(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
 
 def cmd_review(args: argparse.Namespace, config: dict[str, Any]) -> int:
-    days = args.days if args.days is not None else 7
-    due = progress.due_for_review(days)
-    if not due:
-        print(f"Nothing due for review (no solves older than {days} days). Nice.")
+    due = progress.due_reviews()
+    upcoming = progress.upcoming_reviews()
+    if not due and not upcoming:
+        print("No problems are tracked for review yet -- solve something first.")
         return 0
-    print(f"Due for review (solved at least {days} days ago) -- {len(due)} problem(s):\n")
-    for e in due:
-        topic = e.get("topic") or "-"
-        print(f"  {e['days_ago']:>3}d ago  {e['number']:>4}  "
-              f"{e['difficulty']:<6}  {e['title']}  [{topic}]")
-    print("\nRe-solve one with:  leetcode fetch <number-or-slug>")
+    if due:
+        print(f"Due for a blind refresh now -- {len(due)} problem(s):\n")
+        for r in due:
+            od = "today" if r["days_overdue"] == 0 else f"+{r['days_overdue']}d overdue"
+            print(f"  {r['number']:>4}  {r['difficulty']:<6}  {r['title']:<40}  "
+                  f"[{progress.level_name(r['level'])}]  ({od})")
+        print("\nIn the GUI: the Refresh tab queues these. CLI: re-solve blind with")
+        print("  leetcode fetch <slug>   then   leetcode submit --rating aced|good|hard")
+    else:
+        nxt = upcoming[0]
+        print(f"Nothing due right now. Next up: {nxt['title']} in {nxt['days_until']} day(s).")
     return 0
 
 
@@ -428,6 +438,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="delete the local file after a successful commit")
     ps.add_argument("--keep", action="store_true",
                     help="keep the local file even if delete_after_submit is on")
+    ps.add_argument("--rating", choices=("aced", "good", "hard"),
+                    help="spaced-repetition rating for this attempt "
+                         "(aced=level up, good=stay, hard=reset)")
     ps.set_defaults(func=cmd_submit)
 
     pcl = sub.add_parser("clean", help="remove scaffolded files from a folder")

@@ -61,6 +61,7 @@ DEFAULTS: dict[str, Any] = {
     "workdir": "",  # last-used solutions folder (GUI remembers this)
     "delete_after_submit": False,  # remove the local file once it's committed
     "preset": "neetcode150",  # roadmap preset: blind75 / neetcode150 / all
+    "review_intervals": [7, 30, 90, 365],  # spaced-repetition ladder, in days
 }
 
 

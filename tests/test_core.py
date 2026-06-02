@@ -132,5 +132,62 @@ class TestProgress(unittest.TestCase):
         self.assertNotIn("new", slugs)
 
 
+class TestReviewSRS(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._orig_path = progress.PROGRESS_PATH
+        self._orig_ensure = progress.ensure_home
+        self._orig_iv = progress.review_intervals
+        progress.PROGRESS_PATH = Path(self._tmp.name) / "progress.json"
+        progress.ensure_home = lambda: None
+        progress.review_intervals = lambda: [7, 30, 90, 365]
+        progress.PROGRESS_PATH.write_text('{"solved": [], "reviews": {}}', encoding="utf-8")
+
+    def tearDown(self):
+        progress.PROGRESS_PATH = self._orig_path
+        progress.ensure_home = self._orig_ensure
+        progress.review_intervals = self._orig_iv
+        self._tmp.cleanup()
+
+    def _meta(self):
+        return {"number": 1, "title": "Two Sum", "difficulty": "easy",
+                "topic": "Arrays & Hashing", "url": "u"}
+
+    def test_ladder(self):
+        from datetime import date, timedelta
+        # first solve -> level 0, due in 7 days
+        r = progress.schedule_review("two-sum", self._meta(), rating=None)
+        self.assertEqual(r["level"], 0)
+        self.assertEqual(r["due"], (date.today() + timedelta(days=7)).isoformat())
+        # aced -> level 1 (30d)
+        r = progress.schedule_review("two-sum", self._meta(), rating="aced")
+        self.assertEqual(r["level"], 1)
+        self.assertEqual(r["due"], (date.today() + timedelta(days=30)).isoformat())
+        # hard -> reset to level 0 (7d)
+        r = progress.schedule_review("two-sum", self._meta(), rating="hard")
+        self.assertEqual(r["level"], 0)
+
+    def test_due_reviews(self):
+        from datetime import date, timedelta
+        progress.schedule_review("x", self._meta())
+        # force it overdue
+        data = json.loads(progress.PROGRESS_PATH.read_text())
+        data["reviews"]["x"]["due"] = (date.today() - timedelta(days=2)).isoformat()
+        progress.PROGRESS_PATH.write_text(json.dumps(data), encoding="utf-8")
+        due = progress.due_reviews()
+        self.assertEqual(due[0]["slug"], "x")
+        self.assertEqual(due[0]["days_overdue"], 2)
+
+    def test_readme_review_section(self):
+        from datetime import date
+        reviews = {"two-sum": {"level": 1, "due": date.today().isoformat(),
+                               "number": 1, "title": "Two Sum", "difficulty": "easy",
+                               "url": "u", "last_rating": "aced"}}
+        md = readme.generate([], streak=0, reviews=reviews)
+        self.assertIn("Review schedule", md)
+        self.assertIn("Familiar", md)
+        self.assertIn("DUE", md)
+
+
 if __name__ == "__main__":
     unittest.main()

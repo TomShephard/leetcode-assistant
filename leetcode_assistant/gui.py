@@ -317,16 +317,19 @@ class App:
         workflow_tab = ttk.Frame(self.notebook)
         solve_tab = ttk.Frame(self.notebook)
         practice_tab = ttk.Frame(self.notebook)
+        refresh_tab = ttk.Frame(self.notebook)
         stats_tab = ttk.Frame(self.notebook)
         self.notebook.add(workflow_tab, text="  Workflow  ")
         self.notebook.add(solve_tab, text="  Solve  ")
         self.notebook.add(practice_tab, text="  NeetCode Roadmap  ")
+        self.notebook.add(refresh_tab, text="  Refresh  ")
         self.notebook.add(stats_tab, text="  Stats  ")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self._build_workflow_tab(workflow_tab)
         self._build_solve_tab(solve_tab)
         self._build_practice_tab(practice_tab)
+        self._build_refresh_tab(refresh_tab)
         self._build_stats_tab(stats_tab)
 
         self._bind_shortcuts()
@@ -613,7 +616,8 @@ class App:
             elapsed = None
             if getattr(self, "_solve_started", None) is not None:
                 elapsed = int(time.monotonic() - self._solve_started)
-            self._do_commit(path, meta, repo_url, seconds=elapsed)
+            rating = self._rating_for(meta.get("slug", ""))
+            self._do_commit(path, meta, repo_url, seconds=elapsed, rating=rating)
             if elapsed:
                 m, s = divmod(elapsed, 60)
                 self._solve_log(f"Solved in {m}m {s}s.\n", "muted")
@@ -717,8 +721,99 @@ class App:
             self._populate_topics()
         elif "Solve" in current:
             self._load_solve()
+        elif "Refresh" in current:
+            self._refresh_refresh_tab()
         elif "Stats" in current:
             self._refresh_stats()
+
+    # ------------------------------------------------------------------ #
+    # Refresh tab (spaced repetition)
+    # ------------------------------------------------------------------ #
+    def _build_refresh_tab(self, parent: tk.Misc) -> None:
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", padx=12, pady=(10, 4))
+        ttk.Label(bar, text="Spaced repetition: blind-retest problems as they come due, "
+                  "then rate how it went to set the next interval.",
+                  style="TLabel").pack(side="left")
+        ttk.Button(bar, text="Refresh list", command=self._refresh_refresh_tab
+                   ).pack(side="right")
+
+        body = ttk.Frame(parent)
+        body.pack(fill="both", expand=True, padx=12, pady=6)
+
+        due = ttk.Labelframe(body, text="Due now", style="Card.TLabelframe")
+        due.pack(fill="both", expand=True, side="top", pady=(0, 6))
+        ctl = ttk.Frame(due, style="Card.TFrame")
+        ctl.pack(fill="x", padx=6, pady=6)
+        self.refresh_start_btn = ttk.Button(ctl, text="Start blind retest",
+                                            style="Accent.TButton",
+                                            command=self._refresh_start)
+        self.refresh_start_btn.pack(side="left", padx=4)
+        ttk.Label(ctl, text="(fetches a fresh copy and opens the Solve tab)",
+                  style="Card.TLabel").pack(side="left", padx=6)
+        self.refresh_due_tree = ttk.Treeview(
+            due, columns=("num", "diff", "title", "level", "over"), show="headings",
+            selectmode="browse", height=8)
+        for col, text, w, anchor in (
+            ("num", "#", 60, "center"), ("diff", "Difficulty", 90, "center"),
+            ("title", "Problem", 330, "w"), ("level", "Level", 100, "center"),
+            ("over", "Overdue", 90, "center")):
+            self.refresh_due_tree.heading(col, text=text)
+            self.refresh_due_tree.column(col, width=w, anchor=anchor)
+        self.refresh_due_tree.pack(side="left", fill="both", expand=True, padx=6, pady=(0, 6))
+        self.refresh_due_tree.bind("<Double-1>", lambda e: self._refresh_start())
+
+        up = ttk.Labelframe(body, text="Upcoming", style="Card.TLabelframe")
+        up.pack(fill="both", expand=True, side="top")
+        self.refresh_up_tree = ttk.Treeview(
+            up, columns=("num", "title", "level", "due"), show="headings",
+            selectmode="none", height=7)
+        for col, text, w, anchor in (
+            ("num", "#", 60, "center"), ("title", "Problem", 330, "w"),
+            ("level", "Level", 110, "center"), ("due", "Next review", 200, "w")):
+            self.refresh_up_tree.heading(col, text=text)
+            self.refresh_up_tree.column(col, width=w, anchor=anchor)
+        self.refresh_up_tree.pack(fill="both", expand=True, padx=6, pady=6)
+
+    def _refresh_refresh_tab(self) -> None:
+        if not hasattr(self, "refresh_due_tree"):
+            return
+        self.refresh_due_tree.delete(*self.refresh_due_tree.get_children())
+        for r in progress.due_reviews():
+            od = "today" if r["days_overdue"] == 0 else f"+{r['days_overdue']}d"
+            self.refresh_due_tree.insert(
+                "", "end", iid=r["slug"],
+                values=(r.get("number", ""), (r.get("difficulty", "") or "").capitalize(),
+                        r.get("title", r["slug"]), progress.level_name(r.get("level", 0)), od))
+        self.refresh_up_tree.delete(*self.refresh_up_tree.get_children())
+        for r in progress.upcoming_reviews():
+            self.refresh_up_tree.insert(
+                "", "end",
+                values=(r.get("number", ""), r.get("title", r["slug"]),
+                        progress.level_name(r.get("level", 0)),
+                        f"{r['due']} (in {r['days_until']}d)"))
+
+    def _refresh_start(self) -> None:
+        sel = self.refresh_due_tree.selection()
+        if not sel:
+            messagebox.showinfo("Pick a problem", "Select a due problem to retest.")
+            return
+        slug = sel[0]
+        # Blind retest: remove any old scaffold for this problem so the editor
+        # starts empty, then fetch a fresh copy.
+        try:
+            wd = self._workdir_path()
+            num = int(progress.all_reviews().get(slug, {}).get("number") or 0)
+            for ext in ("py", "js"):
+                f = wd / f"{num:04d}-{slug}.{ext}"
+                if f.exists():
+                    f.unlink()
+            mp = wd / cfg.WORKDIR_META / f"{slug}.json"
+            if mp.exists():
+                mp.unlink()
+        except (OSError, ValueError):
+            pass
+        self._fetch_problem_by_slug(slug)  # fetches fresh + opens the Solve tab
 
     # ------------------------------------------------------------------ #
     # Stats tab (heatmap + summary)
@@ -1343,12 +1438,51 @@ class App:
                     "solution. Submit anyway?"):
                     self.log("Submit cancelled.\n", "muted")
                     return
-            self._do_commit(path, meta, repo_url)
+            rating = self._rating_for(meta.get("slug", ""))
+            self._do_commit(path, meta, repo_url, rating=rating)
 
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
 
+    def _rating_for(self, slug: str) -> str | None:
+        """If this problem is already tracked for review, ask how the blind
+        retest went (spaced repetition). First solves return None."""
+        if not slug or not progress.has_review(slug):
+            return None
+        return self._ask_confidence()
+
+    def _ask_confidence(self) -> str | None:
+        """Modal 3-choice confidence prompt. Returns aced/good/hard or None."""
+        win = tk.Toplevel(self.root)
+        win.title("How did the refresh go?")
+        win.configure(bg=CARD)
+        win.transient(self.root)
+        win.resizable(False, False)
+        result = {"v": None}
+        ttk.Label(win, text="Rate this blind attempt -- it sets the next refresh date:",
+                  style="Card.TLabel", padding=12).pack()
+        row = ttk.Frame(win, style="Card.TFrame")
+        row.pack(padx=12, pady=(0, 12))
+
+        def choose(v: str) -> None:
+            result["v"] = v
+            win.destroy()
+
+        for val, label in (("aced", "Aced it (no help)  ->  longer"),
+                           ("good", "Got it (some hesitation)  ->  same"),
+                           ("hard", "Needed help  ->  retest soon")):
+            ttk.Button(row, text=label, width=34,
+                       command=lambda v=val: choose(v)).pack(pady=3)
+        win.update_idletasks()
+        # center on the main window
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        self.root.wait_window(win)
+        return result["v"]
+
     def _do_commit(self, path: Path, meta: dict[str, Any], repo_url: str,
-                   seconds: int | None = None) -> None:
+                   seconds: int | None = None, rating: str | None = None) -> None:
         ext = SUPPORTED_LANGUAGES.get(meta.get("language", "python"), {}).get("ext", "txt")
         self.log("Tests passed. Checking solution complexity "
                  "(this can take a few seconds), then committing...\n", "info")
@@ -1363,17 +1497,19 @@ class App:
             progress.record_solve(
                 meta["number"], meta["slug"], meta["title"], meta["difficulty"],
                 topic=topic, optimality=cx.verdict, url=meta.get("url"), seconds=seconds)
+            review = progress.schedule_review(
+                meta["slug"], {**meta, "topic": topic}, rating=rating)
             result = repo.commit_and_push(
                 repo_url, path,
                 number=meta["number"], title=meta["title"],
                 difficulty=meta["difficulty"], slug=meta["slug"], language_ext=ext)
-            return result, cx
+            return result, cx, review
 
         def done(payload: Any, err: Exception | None) -> None:
             if err:
                 self.log(f"Git error: {err}\n", "fail")
                 return
-            result, cx = payload
+            result, cx, review = payload
             if cx.verdict == "optimal":
                 self.log(f"Complexity: {cx.summary()} -- optimal.\n", "pass")
             elif cx.verdict == "suboptimal":
@@ -1381,6 +1517,9 @@ class App:
                          "-- looks brute-force/half-solved.\n", "fail")
             elif cx.measured != "unknown":
                 self.log(f"Complexity: {cx.summary()}.\n", "muted")
+            if review:
+                self.log(f"Next refresh: {review['due']} "
+                         f"({progress.level_name(review['level'])}).\n", "info")
             committed = result.get("committed")
             if not committed:
                 self.log(f"Nothing to commit ({result.get('reason', 'no changes')}) "
@@ -1395,6 +1534,7 @@ class App:
             self.refresh_streak()
             self._refresh_practice_after_solve()
             self._refresh_stats()
+            self._refresh_refresh_tab()
             # Optional local cleanup once it's safely committed.
             if committed and self.delete_after.get():
                 removed = scaffold.cleanup_solution(self._workdir_path(), meta)

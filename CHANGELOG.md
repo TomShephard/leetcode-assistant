@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.7.0
+- **Refresh tab (spaced repetition):** every solved problem is scheduled for a
+  blind retest on an expanding ladder (Learning 7d -> Familiar 30d -> Confident
+  90d -> Mastered 365d). Due problems queue up; "Start blind retest" fetches a
+  fresh copy, and after passing you rate the attempt (Aced -> level up,
+  Got it -> stay, Needed help -> back to Learning).
+- The solutions-repo README now includes a **Review schedule** section.
+- `leetcode review` shows what's due; `leetcode submit --rating` records a
+  rating from the CLI. Intervals are configurable (`review_intervals`).
+
 ## v1.6.0
 - Editor feels like a real IDE: tab-aware backspace (delete a whole indent
   level at once), auto-closing brackets/quotes with type-over, and a

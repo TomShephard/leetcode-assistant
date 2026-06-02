@@ -30,7 +30,50 @@ def _badge(label: str, value: str, color: str) -> str:
     return f"![{label}](https://img.shields.io/badge/{enc(label)}-{enc(value)}-{color})"
 
 
-def generate(entries: list[dict[str, Any]], streak: int = 0) -> str:
+def _review_section(reviews: dict[str, Any]) -> list[str]:
+    """Render the spaced-repetition schedule (due now + upcoming)."""
+    from datetime import date, datetime
+    if not reviews:
+        return []
+    _names = ["Learning", "Familiar", "Confident", "Mastered"]
+    today = date.today()
+    rows = []
+    for slug, r in reviews.items():
+        try:
+            due = datetime.strptime(r["due"], "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            continue
+        rows.append((due, slug, r))
+    rows.sort(key=lambda t: t[0])
+    due_now = [t for t in rows if t[0] <= today]
+
+    out = ["## Review schedule", ""]
+    out.append(f"Spaced-repetition refresh queue -- **{len(due_now)} due now**, "
+               f"{len(rows)} tracked. Blind-retest the due ones and rate your "
+               f"confidence to push them further out.")
+    out.append("")
+    out.append("| Status | # | Problem | Level | Last | Next review |")
+    out.append("|--------|---|---------|-------|------|-------------|")
+    for due, slug, r in rows:
+        lvl = r.get("level", 0)
+        name = _names[lvl] if lvl < len(_names) else f"L{lvl}"
+        url = r.get("url") or f"https://leetcode.com/problems/{slug}/"
+        title = r.get("title", slug)
+        if due <= today:
+            status = "**DUE**" if due == today else f"**DUE +{(today - due).days}d**"
+            when = r["due"]
+        else:
+            status = "scheduled"
+            when = f"{r['due']} (in {(due - today).days}d)"
+        last = r.get("last_rating") or "-"
+        out.append(f"| {status} | {r.get('number','')} | [{title}]({url}) | "
+                   f"{name} | {last} | {when} |")
+    out.append("")
+    return out
+
+
+def generate(entries: list[dict[str, Any]], streak: int = 0,
+             reviews: dict[str, Any] | None = None) -> str:
     total = len(entries)
     by_diff = {"easy": 0, "medium": 0, "hard": 0}
     optimal = suboptimal = 0
@@ -66,6 +109,9 @@ def generate(entries: list[dict[str, Any]], streak: int = 0) -> str:
         lines.append(f"**Solved optimally:** {optimal}/{graded} ({pct}%)  -  "
                      f"flagged as brute-force/suboptimal: {suboptimal}")
         lines.append("")
+
+    # Spaced-repetition schedule, if any.
+    lines.extend(_review_section(reviews or {}))
 
     # Table, most recent first.
     ordered = sorted(

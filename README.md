@@ -92,13 +92,38 @@ works if you prefer PyCharm/VS Code.
 Keyboard shortcuts: `Ctrl+S` save, `Ctrl+Enter` run tests, `Ctrl+Shift+Enter`
 submit.
 
-## Stats and spaced repetition
+## Refresh -- spaced repetition
+
+Solving a problem once isn't enough to keep it. The **Refresh** tab schedules a
+blind retest of every problem you solve, on an expanding ladder so that what you
+remember gets pushed further out and what you forget comes back soon:
+
+| Level | Next review |
+|-------|-------------|
+| Learning  | 7 days  |
+| Familiar  | 30 days |
+| Confident | 90 days |
+| Mastered  | 365 days |
+
+When a problem comes due, pick it in the Refresh tab and **Start blind retest** --
+it fetches a fresh, empty copy and opens the Solve tab. After your tests pass,
+you rate the attempt:
+
+- **Aced it (no help)** -> move up a level (longer interval)
+- **Got it (some hesitation)** -> stay at the same level
+- **Needed help** -> back to Learning (retest in a week)
+
+Everything stays in rotation forever (Mastered still retests yearly), and your
+solutions repo's README gets a **Review schedule** section showing what's due
+and when. Intervals are configurable via `review_intervals` in the config.
+
+`leetcode review` lists what's due from the CLI; `leetcode submit --rating
+aced|good|hard` records a rating without the GUI.
+
+## Stats
 
 The **Stats** tab shows a GitHub-style activity heatmap, your current and
 longest streaks, per-difficulty counts, and your optimal-solution ratio.
-
-`leetcode review` lists problems you solved a while ago that are due for another
-pass (spaced repetition) -- e.g. `leetcode review --days 14`.
 
 Stuck on setup? `leetcode doctor` checks Python, git, GitHub auth, network, and
 your config, and tells you exactly what's missing.
