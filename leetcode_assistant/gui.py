@@ -436,10 +436,15 @@ class App:
         self.solve_save_btn = ttk.Button(bar, text="Save", command=self._solve_save)
         self.solve_save_btn.pack(side="right", padx=3)
 
+        # vertical split: editor area on top, tests/output below, with a
+        # draggable sash so the console can be grown or shrunk.
+        vsplit = tk.PanedWindow(parent, orient="vertical", sashwidth=6,
+                                bg=BORDER, bd=0)
+        vsplit.pack(fill="both", expand=True, padx=10, pady=6)
+
         # main split: description | editor
-        split = tk.PanedWindow(parent, orient="horizontal", sashwidth=6,
+        split = tk.PanedWindow(vsplit, orient="horizontal", sashwidth=6,
                                bg=BORDER, bd=0)
-        split.pack(fill="both", expand=True, padx=10, pady=6)
 
         desc_wrap = ttk.Labelframe(split, text="Problem", style="Card.TLabelframe")
         self.desc_text = tk.Text(desc_wrap, wrap="word", state="disabled",
@@ -455,10 +460,10 @@ class App:
         self.code_editor = CodeEditor(edit_wrap, language="python")
         self.code_editor.pack(fill="both", expand=True, padx=2, pady=2)
         split.add(edit_wrap, minsize=420)
+        vsplit.add(split, minsize=220, stretch="always")
 
-        # bottom: test/output console
-        out = ttk.Labelframe(parent, text="Tests / output", style="Card.TLabelframe")
-        out.pack(fill="x", padx=10, pady=(0, 8))
+        # bottom: test/output console -- drag the sash above to resize it
+        out = ttk.Labelframe(vsplit, text="Tests / output", style="Card.TLabelframe")
         mono = tkfont.Font(family="Consolas", size=10)
         self.solve_output = tk.Text(out, wrap="word", height=6, state="disabled",
                                     background=CONSOLE_BG, foreground=CONSOLE_FG,
@@ -470,6 +475,7 @@ class App:
         for tag, col in (("pass", "#34d399"), ("fail", "#f87171"),
                          ("info", "#60a5fa"), ("muted", "#94a3b8")):
             self.solve_output.tag_configure(tag, foreground=col)
+        vsplit.add(out, minsize=90, height=170, stretch="never")
 
     def _solve_log(self, text: str, tag: str | None = None) -> None:
         self.solve_output.configure(state="normal")

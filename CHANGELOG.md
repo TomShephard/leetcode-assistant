@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.1
+- Solve tab: the **Tests / output** console now lives in a resizable pane.
+  Drag the sash between the editor and the console to grow the output (handy
+  for long failure traces) or shrink it to give your code more room.
+
 ## v1.8.0
 - **Testing tab (topic gauntlets):** test a whole topic back-to-back. A pass
   means solving every problem in the topic at the selected question set
