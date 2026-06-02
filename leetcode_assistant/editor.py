@@ -73,6 +73,65 @@ class CodeEditor(tk.Frame):
         self.text.bind("<Configure>", lambda e: self._redraw_gutter())
         self.text.bind("<MouseWheel>", lambda e: self.after(2, self._redraw_gutter))
 
+        # Find + font-zoom
+        self.font_size = 11
+        self.text.tag_configure("find", background="#5a5a2c")
+        self.text.bind("<Control-f>", lambda e: self._show_find())
+        self.text.bind("<Control-equal>", lambda e: self._zoom(1))
+        self.text.bind("<Control-plus>", lambda e: self._zoom(1))
+        self.text.bind("<Control-minus>", lambda e: self._zoom(-1))
+
+        self._find = tk.Frame(self, bg="#2a2a3c", bd=1, relief="solid")
+        self._find_var = tk.StringVar()
+        tk.Label(self._find, text="Find", bg="#2a2a3c", fg=FG,
+                 font=("Segoe UI", 9)).pack(side="left", padx=(6, 2), pady=3)
+        self._find_entry = tk.Entry(self._find, textvariable=self._find_var, width=22,
+                                    bg=BG, fg=FG, insertbackground=FG, relief="flat")
+        self._find_entry.pack(side="left", padx=2, pady=3)
+        self._find_entry.bind("<Return>", lambda e: self._find_next())
+        self._find_entry.bind("<Escape>", lambda e: self._hide_find())
+
+    # -- find + zoom ---------------------------------------------------- #
+    def _show_find(self) -> str:
+        self._find.place(relx=1.0, x=-18, y=6, anchor="ne")
+        self._find_entry.focus_set()
+        self._find_entry.select_range(0, "end")
+        return "break"
+
+    def _hide_find(self) -> str:
+        self._find.place_forget()
+        self.text.tag_remove("find", "1.0", "end")
+        self.text.focus_set()
+        return "break"
+
+    def _find_next(self) -> str:
+        term = self._find_var.get()
+        if not term:
+            return "break"
+        self.text.tag_remove("find", "1.0", "end")
+        idx = "1.0"
+        first = None
+        while True:
+            idx = self.text.search(term, idx, stopindex="end", nocase=1)
+            if not idx:
+                break
+            end = f"{idx}+{len(term)}c"
+            self.text.tag_add("find", idx, end)
+            if first is None:
+                first = idx
+            idx = end
+        nxt = self.text.search(term, "insert", stopindex="end", nocase=1) or first
+        if nxt:
+            self.text.mark_set("insert", f"{nxt}+{len(term)}c")
+            self.text.see(nxt)
+        return "break"
+
+    def _zoom(self, delta: int) -> str:
+        self.font_size = max(8, min(24, self.font_size + delta))
+        self.font.configure(size=self.font_size)
+        self._redraw_gutter()
+        return "break"
+
     # -- public API ----------------------------------------------------- #
     def get_code(self) -> str:
         return self.text.get("1.0", "end-1c")

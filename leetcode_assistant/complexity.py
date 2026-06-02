@@ -55,15 +55,22 @@ OPTIMAL_BY_SLUG: dict[str, str] = {
 
 @dataclass
 class ComplexityResult:
-    measured: str          # e.g. "O(n)" or "unknown"
+    measured: str          # time class, e.g. "O(n)" or "unknown"
     exponent: float | None
-    optimal: str | None    # known-optimal class, or None if unknown
+    optimal: str | None    # known-optimal time class, or None if unknown
     verdict: str           # "optimal" | "suboptimal" | "unknown"
     detail: str = ""
+    space: str = "unknown"  # measured extra-space class
 
     @property
     def is_optimal(self) -> bool:
         return self.verdict == "optimal"
+
+    def summary(self) -> str:
+        parts = [f"Time {self.measured}"]
+        if self.space != "unknown":
+            parts.append(f"Space {self.space}")
+        return ", ".join(parts)
 
 
 def _slope_to_class(slope: float) -> str:
@@ -81,7 +88,7 @@ def _slope_to_class(slope: float) -> str:
 
 
 _HARNESS = r'''
-import importlib.util, json, sys, time, copy, random
+import importlib.util, json, sys, time, random, tracemalloc
 
 sol_path, meta_path, sizes_json = sys.argv[1], sys.argv[2], sys.argv[3]
 meta = json.load(open(meta_path, encoding="utf-8"))
@@ -96,18 +103,20 @@ try:
 except Exception as e:
     print(json.dumps({"error": "load: %r" % e})); sys.exit(0)
 
-# Build a template arg list from the first example case.
 case = meta["test_cases"][0]
 try:
     base_args = [json.loads(x) for x in case["input"]]
 except Exception as e:
     print(json.dumps({"error": "parse args: %r" % e})); sys.exit(0)
 
-# Find the first list-of-numbers argument; that's the one we scale.
+# Find the first list argument (numbers or strings); that's the one we scale.
 scale_idx = None
+elem_kind = None
 for i, a in enumerate(base_args):
     if isinstance(a, list) and a and all(isinstance(v, (int, float)) for v in a):
-        scale_idx = i; break
+        scale_idx, elem_kind = i, "num"; break
+    if isinstance(a, list) and a and all(isinstance(v, str) for v in a):
+        scale_idx, elem_kind = i, "str"; break
 if scale_idx is None:
     print(json.dumps({"error": "no scalable list arg"})); sys.exit(0)
 
@@ -117,26 +126,40 @@ def make_args(n):
     args = []
     for i, a in enumerate(base_args):
         if i == scale_idx:
-            args.append([random.randint(0, 10 * n) for _ in range(n)])
+            if elem_kind == "num":
+                args.append([random.randint(0, 10 * n) for _ in range(n)])
+            else:
+                args.append([str(random.randint(0, 10 * n)) for _ in range(n)])
         elif isinstance(a, (int, float)) and not isinstance(a, bool):
-            # Force worst case: a target that can't be hit (no early exit).
-            args.append(-1)
+            args.append(-1)   # force worst case (no early exit)
         else:
             args.append(a)
     return args
 
-results = {}
+times, mems = {}, {}
 for n in sizes:
     args = make_args(n)
-    a = copy.deepcopy(args)
     t0 = time.perf_counter()
     try:
-        fn(*a)
+        fn(*args)
     except Exception as e:
         print(json.dumps({"error": "runtime: %r" % e})); sys.exit(0)
-    results[str(n)] = time.perf_counter() - t0
+    times[str(n)] = time.perf_counter() - t0
 
-print(json.dumps({"results": results, "scaled_arg": scale_idx}))
+# Separate, lighter pass for extra-space measurement (excludes input alloc).
+for n in sizes[:3]:
+    args = make_args(n)
+    tracemalloc.start()
+    tracemalloc.reset_peak()
+    try:
+        fn(*args)
+    except Exception:
+        tracemalloc.stop(); break
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    mems[str(n)] = peak
+
+print(json.dumps({"results": times, "mem": mems, "scaled_arg": scale_idx}))
 '''
 
 
@@ -170,7 +193,7 @@ def estimate(solution_path: Path, meta: dict[str, Any]) -> ComplexityResult:
             # Couldn't finish even moderate sizes -> almost certainly quadratic+
             return ComplexityResult("O(n^2)", 2.0, optimal,
                                     _verdict("O(n^2)", optimal),
-                                    "timed out on growing inputs (slow)")
+                                    "timed out on growing inputs (slow)", space="unknown")
 
     out = (proc.stdout or "").strip().splitlines()
     if not out:
@@ -191,9 +214,19 @@ def estimate(solution_path: Path, meta: dict[str, Any]) -> ComplexityResult:
 
     slope = _loglog_slope(pts)
     measured = _slope_to_class(slope)
+
+    # Space: fit the extra-memory pass if we have enough signal.
+    space = "unknown"
+    mem = payload.get("mem") or {}
+    mpts = [(n, mem[str(n)]) for n in sizes if mem.get(str(n), 0) > 256]
+    if len(mpts) >= 3:
+        space = _slope_to_class(_loglog_slope(mpts))
+    elif mem and all(v <= 4096 for v in mem.values()):
+        space = "O(1)"
+
     return ComplexityResult(measured, round(slope, 2), optimal,
                             _verdict(measured, optimal),
-                            f"fitted exponent ~{slope:.2f}")
+                            f"fitted exponent ~{slope:.2f}", space=space)
 
 
 def _loglog_slope(points: list[tuple[int, float]]) -> float:

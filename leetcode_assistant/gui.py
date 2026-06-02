@@ -18,6 +18,8 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -315,14 +317,21 @@ class App:
         workflow_tab = ttk.Frame(self.notebook)
         solve_tab = ttk.Frame(self.notebook)
         practice_tab = ttk.Frame(self.notebook)
+        stats_tab = ttk.Frame(self.notebook)
         self.notebook.add(workflow_tab, text="  Workflow  ")
         self.notebook.add(solve_tab, text="  Solve  ")
         self.notebook.add(practice_tab, text="  NeetCode Roadmap  ")
+        self.notebook.add(stats_tab, text="  Stats  ")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self._build_workflow_tab(workflow_tab)
         self._build_solve_tab(solve_tab)
         self._build_practice_tab(practice_tab)
+        self._build_stats_tab(stats_tab)
+
+        self._bind_shortcuts()
+        self._restore_window_state()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_workflow_tab(self, parent: tk.Misc) -> None:
         # Working folder
@@ -471,6 +480,10 @@ class App:
             self.code_editor.set_code("")
             self.solve_path = self.solve_meta = None
             return
+        # Start (or keep) a solve timer for this problem.
+        if getattr(self, "_solve_timed_slug", None) != meta.get("slug"):
+            self._solve_started = time.monotonic()
+            self._solve_timed_slug = meta.get("slug")
         self.solve_path, self.solve_meta = path, meta
         self.solve_title_var.set(
             f"{meta['number']}. {meta['title']}  [{meta['difficulty'].capitalize()}]")
@@ -482,6 +495,14 @@ class App:
         except OSError as exc:
             self._solve_log(f"Could not read file: {exc}\n", "fail")
         self.code_editor.focus_editor()
+
+    def _open_solve(self) -> None:
+        """Switch to the Solve tab and load the current problem into the editor."""
+        for i in range(len(self.notebook.tabs())):
+            if "Solve" in self.notebook.tab(i, "text"):
+                self.notebook.select(i)
+                break
+        self._load_solve()
 
     @staticmethod
     def _description_from_file(path: Path, meta: dict[str, Any]) -> str:
@@ -572,7 +593,13 @@ class App:
                     "No test cases", "No automatic tests for this problem. Submit anyway?"):
                 self._solve_log("Cancelled.\n", "muted")
                 return
-            self._do_commit(path, meta, repo_url)
+            elapsed = None
+            if getattr(self, "_solve_started", None) is not None:
+                elapsed = int(time.monotonic() - self._solve_started)
+            self._do_commit(path, meta, repo_url, seconds=elapsed)
+            if elapsed:
+                m, s = divmod(elapsed, 60)
+                self._solve_log(f"Solved in {m}m {s}s.\n", "muted")
             self._solve_log("Committed (see the Workflow Output for details).\n", "pass")
 
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
@@ -673,6 +700,119 @@ class App:
             self._populate_topics()
         elif "Solve" in current:
             self._load_solve()
+        elif "Stats" in current:
+            self._refresh_stats()
+
+    # ------------------------------------------------------------------ #
+    # Stats tab (heatmap + summary)
+    # ------------------------------------------------------------------ #
+    def _build_stats_tab(self, parent: tk.Misc) -> None:
+        top = ttk.Frame(parent)
+        top.pack(fill="x", padx=14, pady=(12, 4))
+        self.stats_summary_var = tk.StringVar(value="No solves yet.")
+        ttk.Label(top, textvariable=self.stats_summary_var,
+                  font=("Segoe UI", 11)).pack(anchor="w")
+
+        hm = ttk.Labelframe(parent, text="Activity (last 26 weeks)", style="Card.TLabelframe")
+        hm.pack(fill="x", padx=14, pady=8)
+        self.heatmap = tk.Canvas(hm, height=130, bg=CARD, highlightthickness=0)
+        self.heatmap.pack(fill="x", padx=10, pady=10)
+
+        br = ttk.Labelframe(parent, text="By difficulty", style="Card.TLabelframe")
+        br.pack(fill="x", padx=14, pady=8)
+        self.stats_diff_var = tk.StringVar(value="")
+        ttk.Label(br, textvariable=self.stats_diff_var, style="Card.TLabel",
+                  font=("Consolas", 10)).pack(anchor="w", padx=10, pady=8)
+
+    def _refresh_stats(self) -> None:
+        s = progress.stats()
+        opt = f"  |  optimal {s['optimal']}/{s['total']}" if s["total"] else ""
+        self.stats_summary_var.set(
+            f"Solved: {s['total']}    Current streak: {s['streak']}    "
+            f"Longest streak: {s['longest_streak']}{opt}")
+        d = s["by_difficulty"]
+        self.stats_diff_var.set(
+            f"Easy {d.get('easy', 0):>4}    "
+            f"Medium {d.get('medium', 0):>4}    Hard {d.get('hard', 0):>4}")
+        self._draw_heatmap()
+
+    def _draw_heatmap(self) -> None:
+        c = self.heatmap
+        c.delete("all")
+        counts = progress.solves_by_date()
+        cell, gap = 14, 3
+        weeks = 26
+        today = date.today()
+        # start on the Sunday that begins the leftmost visible week
+        start = today - timedelta(days=today.weekday() + 1 + (weeks - 1) * 7)
+        palette = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
+        x0, y0 = 4, 18
+        for w in range(weeks):
+            for d in range(7):
+                day = start + timedelta(days=w * 7 + d)
+                if day > today:
+                    continue
+                n = counts.get(day.isoformat(), 0)
+                color = palette[min(n, 4)] if n else palette[0]
+                x = x0 + w * (cell + gap)
+                y = y0 + d * (cell + gap)
+                c.create_rectangle(x, y, x + cell, y + cell, fill=color,
+                                   outline=CARD)
+        # month ticks
+        c.create_text(x0, 6, anchor="nw", text=start.strftime("%b"),
+                      fill=MUTED, font=("Segoe UI", 8))
+        c.create_text(x0 + 13 * (cell + gap), 6, anchor="nw",
+                      text=(start + timedelta(days=13 * 7)).strftime("%b"),
+                      fill=MUTED, font=("Segoe UI", 8))
+
+    # ------------------------------------------------------------------ #
+    # shortcuts + window-state persistence
+    # ------------------------------------------------------------------ #
+    def _bind_shortcuts(self) -> None:
+        self.root.bind("<Control-s>", lambda e: self._shortcut_save())
+        self.root.bind("<Control-Return>", lambda e: self._shortcut_test())
+        self.root.bind("<Control-Shift-Return>", lambda e: self._shortcut_submit())
+
+    def _on_solve_tab(self) -> bool:
+        try:
+            return "Solve" in self.notebook.tab(self.notebook.select(), "text")
+        except tk.TclError:
+            return False
+
+    def _shortcut_save(self) -> str:
+        if self._on_solve_tab():
+            self._solve_save()
+        return "break"
+
+    def _shortcut_test(self) -> str:
+        if self._on_solve_tab():
+            self._solve_run_tests()
+        else:
+            self.do_test()
+        return "break"
+
+    def _shortcut_submit(self) -> str:
+        if self._on_solve_tab():
+            self._solve_submit()
+        else:
+            self.do_submit()
+        return "break"
+
+    def _restore_window_state(self) -> None:
+        geo = self.config.get("win_geometry", "")
+        if geo:
+            try:
+                self.root.geometry(geo)
+            except tk.TclError:
+                pass
+
+    def _on_close(self) -> None:
+        try:
+            self.config["win_geometry"] = self.root.geometry()
+            cfg.save_config(self.config)
+        except Exception:  # noqa: BLE001
+            pass
+        self.root.destroy()
 
     def _on_preset_changed(self) -> None:
         if self._current_mode() == "neetcode":
@@ -894,7 +1034,7 @@ class App:
                      f"[{problem.difficulty.capitalize()}]\n")
             self.log(f"Saved: {path}\n", "info")
             self.refresh_target()
-            self.notebook.select(0)  # jump to Workflow to solve it
+            self._open_solve()  # jump straight into the editor
             self.status_var.set(f"Fetched {problem.number}. {problem.title}")
 
         self.run_bg(work, done)
@@ -1102,6 +1242,7 @@ class App:
             self.log(f"{n} example test case(s) recorded.\n", "muted" if n else "fail")
             self.refresh_target()
             self.status_var.set(f"Fetched {problem.number}. {problem.title}")
+            self._open_solve()
 
         self.run_bg(work, done)
 
@@ -1189,7 +1330,8 @@ class App:
 
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
 
-    def _do_commit(self, path: Path, meta: dict[str, Any], repo_url: str) -> None:
+    def _do_commit(self, path: Path, meta: dict[str, Any], repo_url: str,
+                   seconds: int | None = None) -> None:
         ext = SUPPORTED_LANGUAGES.get(meta.get("language", "python"), {}).get("ext", "txt")
         self.log("Tests passed. Checking solution complexity "
                  "(this can take a few seconds), then committing...\n", "info")
@@ -1203,7 +1345,7 @@ class App:
             # record BEFORE commit so the repo README includes this solve
             progress.record_solve(
                 meta["number"], meta["slug"], meta["title"], meta["difficulty"],
-                topic=topic, optimality=cx.verdict, url=meta.get("url"))
+                topic=topic, optimality=cx.verdict, url=meta.get("url"), seconds=seconds)
             result = repo.commit_and_push(
                 repo_url, path,
                 number=meta["number"], title=meta["title"],
@@ -1216,12 +1358,12 @@ class App:
                 return
             result, cx = payload
             if cx.verdict == "optimal":
-                self.log(f"Complexity: {cx.measured} -- optimal.\n", "pass")
+                self.log(f"Complexity: {cx.summary()} -- optimal.\n", "pass")
             elif cx.verdict == "suboptimal":
-                self.log(f"Complexity: {cx.measured} (optimal is {cx.optimal}) "
+                self.log(f"Complexity: {cx.summary()} (optimal time is {cx.optimal}) "
                          "-- looks brute-force/half-solved.\n", "fail")
             elif cx.measured != "unknown":
-                self.log(f"Complexity: {cx.measured}.\n", "muted")
+                self.log(f"Complexity: {cx.summary()}.\n", "muted")
             committed = result.get("committed")
             if not committed:
                 self.log(f"Nothing to commit ({result.get('reason', 'no changes')}) "
@@ -1235,6 +1377,7 @@ class App:
                     self.log(f"Push failed: {result.get('push_error', 'unknown')}\n", "fail")
             self.refresh_streak()
             self._refresh_practice_after_solve()
+            self._refresh_stats()
             # Optional local cleanup once it's safely committed.
             if committed and self.delete_after.get():
                 removed = scaffold.cleanup_solution(self._workdir_path(), meta)

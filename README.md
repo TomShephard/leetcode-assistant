@@ -1,11 +1,24 @@
 ﻿# Leetcode Assistant
 
+![release](https://img.shields.io/github/v/release/TomShephard/leetcode-assistant)
+![tests](https://img.shields.io/github/actions/workflow/status/TomShephard/leetcode-assistant/tests.yml?label=tests)
+![license](https://img.shields.io/github/license/TomShephard/leetcode-assistant)
+![python](https://img.shields.io/badge/python-3.9%2B-blue)
+![platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+
 A desktop app (and CLI) for a daily LeetCode habit. Fetch a problem, **solve it
 in-app** in a built-in code editor, run it against the problem's own example
 test cases, and -- when it passes -- commit and push it to your private GitHub
 solutions repo. It tracks a local solve streak, follows the NeetCode roadmap,
 gauges whether your solution is optimal or brute-force, and keeps a presentable
 auto-updating README in your solutions repo.
+
+![Leetcode Assistant](docs/screenshot.png)
+
+**Download:** grab `LeetCodeAssistant.exe` from the
+[latest release](https://github.com/TomShephard/leetcode-assistant/releases/latest)
+and double-click -- no Python needed to run the app (Git is needed to push
+solutions; Python to run them locally).
 
 ```
 leetcode fetch      grab a (random or specific) problem and scaffold a file
@@ -15,6 +28,8 @@ leetcode config     set up or view configuration
 leetcode stats      show your solve stats and streak
 leetcode roadmap    show the NeetCode roadmap and your progress
 leetcode list TOPIC list the problems in a roadmap topic
+leetcode review     list problems due for spaced-repetition review
+leetcode doctor     check your setup (python, git, auth, network)
 leetcode clean      remove scaffolded files from a folder
 leetcode gui        launch the point-and-click GUI
 ```
@@ -68,10 +83,25 @@ carries the blind75 / neetcode150 / neetcode250 flags); refresh it any time with
 ## Solve in-app (built-in editor)
 
 The GUI's **Solve** tab puts the problem description next to a code editor
-(line numbers, tab-to-spaces, auto-indent, syntax highlighting) with Run-tests
-and Submit right there -- so you can solve a problem end to end without opening
-a separate IDE. The Workflow tab's "Open in editor" still works if you prefer
-PyCharm/VS Code.
+(line numbers, tab-to-spaces, auto-indent, syntax highlighting, find with
+`Ctrl+F`, zoom with `Ctrl +/-`) with Run-tests and Submit right there -- so you
+can solve a problem end to end without opening a separate IDE. Fetching a
+problem drops you straight into it. The Workflow tab's "Open in editor" still
+works if you prefer PyCharm/VS Code.
+
+Keyboard shortcuts: `Ctrl+S` save, `Ctrl+Enter` run tests, `Ctrl+Shift+Enter`
+submit.
+
+## Stats and spaced repetition
+
+The **Stats** tab shows a GitHub-style activity heatmap, your current and
+longest streaks, per-difficulty counts, and your optimal-solution ratio.
+
+`leetcode review` lists problems you solved a while ago that are due for another
+pass (spaced repetition) -- e.g. `leetcode review --days 14`.
+
+Stuck on setup? `leetcode doctor` checks Python, git, GitHub auth, network, and
+your config, and tells you exactly what's missing.
 
 ## Complexity check and a self-updating solutions README
 
@@ -100,6 +130,21 @@ This installs PyInstaller (if needed) and produces `dist\LeetCodeAssistant.exe`.
 can move that EXE anywhere (desktop, Start menu) and run it without Python
 installed. Note: `git` (and optionally `gh`) still need to be installed for the
 submit step, and Node for running JavaScript solutions.
+
+Releases are built automatically: pushing a `vX.Y.Z` tag triggers a GitHub
+Actions workflow that builds the EXE and attaches it to the release.
+
+**Windows SmartScreen:** the EXE is not code-signed, so on first run Windows may
+show a "Windows protected your PC" prompt. Click **More info -> Run anyway**.
+(Code signing requires a paid certificate.)
+
+## Development
+
+```
+py -m unittest discover -s tests      # run the test suite (no deps, no network)
+py tools/make_icon.py                 # regenerate the app icon
+py tools/refresh_neetcode_data.py     # refresh the bundled NeetCode dataset
+```
 
 ## Keeping your folders tidy
 

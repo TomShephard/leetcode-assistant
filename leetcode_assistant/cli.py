@@ -229,12 +229,12 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     print("\nChecking solution complexity (this can take a few seconds)...")
     cx = complexity.estimate(path, meta)
     if cx.verdict == "optimal":
-        print(f"\nComplexity: {cx.measured} -- looks optimal.")
+        print(f"\nComplexity: {cx.summary()} -- looks optimal.")
     elif cx.verdict == "suboptimal":
-        print(f"\nComplexity: {cx.measured} (optimal is {cx.optimal}) -- "
+        print(f"\nComplexity: {cx.summary()} (optimal time is {cx.optimal}) -- "
               "looks brute-force / half-solved. (Committing anyway.)")
     elif cx.measured != "unknown":
-        print(f"\nComplexity: {cx.measured} (no known-optimal to compare).")
+        print(f"\nComplexity: {cx.summary()} (no known-optimal to compare).")
     topic = roadmap.topic_for_slug(meta["slug"]) or ""
 
     # Record BEFORE committing so the repo README includes this solve.
@@ -363,7 +363,9 @@ def cmd_config(args: argparse.Namespace, config: dict[str, Any]) -> int:
 def cmd_stats(args: argparse.Namespace, config: dict[str, Any]) -> int:
     s = progress.stats()
     print(f"Total solved: {s['total']}")
-    print(f"Current streak: {s['streak']} day(s)")
+    print(f"Current streak: {s['streak']} day(s)   (longest: {s['longest_streak']})")
+    if s["total"]:
+        print(f"Solved optimally: {s['optimal']}/{s['total']}")
     if s["by_difficulty"]:
         print("By difficulty:")
         for diff in ("easy", "medium", "hard"):
@@ -372,6 +374,26 @@ def cmd_stats(args: argparse.Namespace, config: dict[str, Any]) -> int:
     if s["last"]:
         last = s["last"]
         print(f"Last solved: {last['number']}. {last['title']} on {last['date']}")
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace, config: dict[str, Any]) -> int:
+    from . import doctor
+    return doctor.run()
+
+
+def cmd_review(args: argparse.Namespace, config: dict[str, Any]) -> int:
+    days = args.days if args.days is not None else 7
+    due = progress.due_for_review(days)
+    if not due:
+        print(f"Nothing due for review (no solves older than {days} days). Nice.")
+        return 0
+    print(f"Due for review (solved at least {days} days ago) -- {len(due)} problem(s):\n")
+    for e in due:
+        topic = e.get("topic") or "-"
+        print(f"  {e['days_ago']:>3}d ago  {e['number']:>4}  "
+              f"{e['difficulty']:<6}  {e['title']}  [{topic}]")
+    print("\nRe-solve one with:  leetcode fetch <number-or-slug>")
     return 0
 
 
@@ -419,6 +441,14 @@ def build_parser() -> argparse.ArgumentParser:
     pst = sub.add_parser("stats", help="show solve stats and streak")
     pst.set_defaults(func=cmd_stats)
 
+    pdoc = sub.add_parser("doctor", help="check your setup (python, git, auth, network)")
+    pdoc.set_defaults(func=cmd_doctor)
+
+    prev = sub.add_parser("review", help="list problems due for spaced-repetition review")
+    prev.add_argument("-d", "--days", type=int, default=None,
+                      help="minimum age in days (default 7)")
+    prev.set_defaults(func=cmd_review)
+
     pto = sub.add_parser("roadmap", help="show the NeetCode roadmap and your progress")
     pto.add_argument("-p", "--preset", help="blind75 | neetcode150 | all")
     pto.set_defaults(func=cmd_roadmap)
@@ -456,7 +486,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # `config` (setup) and `gui` manage configuration themselves, so they must
     # not trigger the interactive text setup.
-    if (args.command == "config" and not args.show) or args.command == "gui":
+    if ((args.command == "config" and not args.show)
+            or args.command in ("gui", "doctor", "review")):
         return args.func(args, cfg.load_config() or dict(cfg.DEFAULTS))
 
     config = cfg.get_config_or_setup()
