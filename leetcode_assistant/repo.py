@@ -110,7 +110,8 @@ def commit_and_push(
         data = progress._load()
         (repo / "README.md").write_text(
             readme.generate(data.get("solved", []), progress.current_streak(),
-                            reviews=data.get("reviews", {})),
+                            reviews=data.get("reviews", {}),
+                            tests=data.get("tests", {})),
             encoding="utf-8")
         _run(["git", "add", "README.md"], cwd=repo)
     except Exception:  # noqa: BLE001 - README is a nice-to-have, never block a commit

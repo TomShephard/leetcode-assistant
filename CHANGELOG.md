@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.8.0
+- **Testing tab (topic gauntlets):** test a whole topic back-to-back. A pass
+  means solving every problem in the topic at the selected question set
+  (Blind 75 / NeetCode 150 / 250 / All). Mark each problem clean, unsure, or
+  used-help as you go -- the same prompt doubles as the refresh rating so you
+  aren't asked twice.
+- Larger question sets are harder, so a pass records the set used and a pass at
+  a higher set outranks a lower one (and never gets downgraded). Passes don't
+  expire; the completion date/time and the full per-problem log are kept.
+- The solutions-repo README is restructured: **Log -> Review schedule ->
+  Topic tests**. Only passed topics are listed (so unattempted ones don't flood
+  it), each with its question set, result, problem count, completion time, and a
+  collapsible per-topic question log.
+
 ## v1.7.0
 - **Refresh tab (spaced repetition):** every solved problem is scheduled for a
   blind retest on an expanding ladder (Learning 7d -> Familiar 30d -> Confident

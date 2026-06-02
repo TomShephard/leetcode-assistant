@@ -120,6 +120,28 @@ and when. Intervals are configurable via `review_intervals` in the config.
 `leetcode review` lists what's due from the CLI; `leetcode submit --rating
 aced|good|hard` records a rating without the GUI.
 
+## Testing -- topic gauntlets
+
+The **Testing** tab tests a whole topic back-to-back. Pick a topic (e.g. Arrays
+& Hashing) and a question set, and **Start / continue test** fetches its problems
+one after another. A **pass** means you solved every problem in that topic in the
+run. As you submit each one you mark how it went:
+
+- **Solved clean (no help)**
+- **Solved but unsure**
+- **Used help / a hint**
+
+That single prompt also feeds the Refresh schedule, so you're not asked twice.
+
+Bigger question sets are harder, so a pass records which set you used, and a pass
+at a higher set (NeetCode 250 / All) outranks one at a lower set (Blind 75) --
+and never gets downgraded. Passes don't expire; the completion time and the full
+per-problem log are kept.
+
+Your solutions repo's README gains a **Topic tests** section listing only the
+topics you've passed (so unattempted ones don't clutter it), each with its
+question set, result, completion time, and a collapsible per-problem log.
+
 ## Stats
 
 The **Stats** tab shows a GitHub-style activity heatmap, your current and

@@ -189,5 +189,83 @@ class TestReviewSRS(unittest.TestCase):
         self.assertIn("DUE", md)
 
 
+class TestTopicTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._orig_path = progress.PROGRESS_PATH
+        self._orig_ensure = progress.ensure_home
+        progress.PROGRESS_PATH = Path(self._tmp.name) / "progress.json"
+        progress.ensure_home = lambda: None
+        progress.PROGRESS_PATH.write_text('{"solved": []}', encoding="utf-8")
+
+    def tearDown(self):
+        progress.PROGRESS_PATH = self._orig_path
+        progress.ensure_home = self._orig_ensure
+        self._tmp.cleanup()
+
+    def test_in_progress_then_pass(self):
+        slugs = ["a", "b", "c"]
+        r = progress.record_test_outcome("T", "blind75", "a", "clean", slugs)
+        self.assertEqual(r["status"], "in_progress")
+        self.assertEqual(r["done"], 1)
+        self.assertEqual(r["remaining"], ["b", "c"])
+        progress.record_test_outcome("T", "blind75", "b", "unsure", slugs)
+        r = progress.record_test_outcome("T", "blind75", "c", "help", slugs)
+        self.assertEqual(r["status"], "passed")
+        rec = r["record"]
+        self.assertEqual(rec["total"], 3)
+        self.assertEqual((rec["clean"], rec["unsure"], rec["help"]), (1, 1, 1))
+        self.assertFalse(rec["clean_pass"])
+        # cleared from in-progress, present in passed tests
+        self.assertNotIn("T", progress.test_in_progress())
+        self.assertIn("T", progress.passed_tests())
+
+    def test_clean_sweep(self):
+        slugs = ["a", "b"]
+        progress.record_test_outcome("T", "blind75", "a", "clean", slugs)
+        r = progress.record_test_outcome("T", "blind75", "b", "clean", slugs)
+        self.assertTrue(r["record"]["clean_pass"])
+
+    def test_higher_preset_supersedes_not_downgrade(self):
+        slugs = ["a"]
+        progress.record_test_outcome("T", "neetcode250", "a", "clean", slugs)
+        # a lower-preset pass must NOT overwrite the higher one
+        progress.record_test_outcome("T", "blind75", "a", "help", slugs)
+        self.assertEqual(progress.passed_tests()["T"]["preset"], "neetcode250")
+        # but a higher preset does replace a lower one
+        progress.record_test_outcome("T2", "blind75", "a", "clean", ["a"])
+        progress.record_test_outcome("T2", "all", "a", "unsure", ["a"])
+        self.assertEqual(progress.passed_tests()["T2"]["preset"], "all")
+
+    def test_status_states(self):
+        slugs = ["a", "b"]
+        st = progress.test_status("T", "blind75", slugs)
+        self.assertEqual(st["state"], "not_started")
+        progress.record_test_outcome("T", "blind75", "a", "clean", slugs)
+        st = progress.test_status("T", "blind75", slugs)
+        self.assertEqual(st["state"], "in_progress")
+        self.assertEqual(st["done"], 1)
+        progress.record_test_outcome("T", "blind75", "b", "clean", slugs)
+        st = progress.test_status("T", "blind75", slugs)
+        self.assertEqual(st["state"], "passed")
+        # a pass at a lower preset counts as passed when viewing a higher one too?
+        # higher preset is harder, so a blind75 pass should NOT show as passed at 'all'
+        st_high = progress.test_status("T", "all", slugs)
+        self.assertNotEqual(st_high["state"], "passed")
+
+    def test_readme_testing_section(self):
+        tests = {"Arrays & Hashing": {
+            "preset": "neetcode250", "completed_at": "2026-06-02 10:00",
+            "total": 2, "clean": 2, "unsure": 0, "help": 0, "clean_pass": True,
+            "problems": [{"slug": "two-sum", "outcome": "clean"},
+                         {"slug": "valid-anagram", "outcome": "clean"}]}}
+        md = readme.generate([], streak=0, tests=tests)
+        self.assertIn("Topic tests", md)
+        self.assertIn("Arrays & Hashing", md)
+        self.assertIn("NeetCode 250", md)
+        self.assertIn("clean sweep", md)
+        self.assertIn("two-sum", md)
+
+
 if __name__ == "__main__":
     unittest.main()

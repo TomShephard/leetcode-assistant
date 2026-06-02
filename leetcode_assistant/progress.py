@@ -238,6 +238,102 @@ def upcoming_reviews(today: date | None = None) -> list[dict[str, Any]]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Topic tests (back-to-back gauntlet per topic)
+# --------------------------------------------------------------------------- #
+PRESET_RANK = {"blind75": 1, "neetcode150": 2, "neetcode250": 3, "all": 4}
+
+
+def _now() -> str:
+    return datetime.now().replace(microsecond=0).isoformat(sep=" ")
+
+
+def passed_tests() -> dict[str, Any]:
+    return _load().get("tests", {})
+
+
+def test_in_progress() -> dict[str, Any]:
+    return _load().get("test_progress", {})
+
+
+def start_test(topic: str, preset: str) -> dict[str, Any]:
+    """Begin (or restart at a new preset) a topic test session."""
+    data = _load()
+    tp = data.setdefault("test_progress", {})
+    cur = tp.get(topic)
+    if not cur or cur.get("preset") != preset:
+        tp[topic] = {"preset": preset, "started_at": _now(), "outcomes": {}}
+        _save(data)
+    return tp[topic]
+
+
+def test_outcomes(topic: str, preset: str) -> dict[str, str]:
+    cur = _load().get("test_progress", {}).get(topic)
+    if cur and cur.get("preset") == preset:
+        return dict(cur.get("outcomes", {}))
+    return {}
+
+
+def record_test_outcome(topic: str, preset: str, slug: str, outcome: str,
+                        topic_slugs: list[str]) -> dict[str, Any]:
+    """Record one problem's outcome (clean/unsure/help) in a topic test. When
+    every problem in the topic has an outcome, the topic is marked passed."""
+    data = _load()
+    tp = data.setdefault("test_progress", {})
+    cur = tp.get(topic)
+    if not cur or cur.get("preset") != preset:
+        cur = {"preset": preset, "started_at": _now(), "outcomes": {}}
+        tp[topic] = cur
+    cur["outcomes"][slug] = outcome
+    outcomes = cur["outcomes"]
+    done = [s for s in topic_slugs if s in outcomes]
+    if topic_slugs and len(done) >= len(topic_slugs):
+        record = _finalize_test(data, topic, preset, outcomes, topic_slugs)
+        tp.pop(topic, None)
+        _save(data)
+        return {"status": "passed", "record": record,
+                "done": len(done), "total": len(topic_slugs)}
+    _save(data)
+    return {"status": "in_progress", "done": len(done),
+            "total": len(topic_slugs),
+            "remaining": [s for s in topic_slugs if s not in outcomes]}
+
+
+def _finalize_test(data, topic, preset, outcomes, topic_slugs) -> dict[str, Any]:
+    tests = data.setdefault("tests", {})
+    clean = sum(1 for s in topic_slugs if outcomes.get(s) == "clean")
+    unsure = sum(1 for s in topic_slugs if outcomes.get(s) == "unsure")
+    helped = sum(1 for s in topic_slugs if outcomes.get(s) == "help")
+    existing = tests.get(topic)
+    # A pass at a higher question set outranks a lower one; never downgrade.
+    if existing and PRESET_RANK.get(existing.get("preset"), 0) > PRESET_RANK.get(preset, 0):
+        return existing
+    rec = {
+        "preset": preset,
+        "completed_at": _now(),
+        "total": len(topic_slugs),
+        "clean": clean, "unsure": unsure, "help": helped,
+        "clean_pass": unsure == 0 and helped == 0,
+        "problems": [{"slug": s, "outcome": outcomes.get(s, "")} for s in topic_slugs],
+    }
+    tests[topic] = rec
+    return rec
+
+
+def test_status(topic: str, preset: str, topic_slugs: list[str]) -> dict[str, Any]:
+    """Status of a topic test at a preset: passed / in-progress / not started."""
+    data = _load()
+    passed = data.get("tests", {}).get(topic)
+    if passed and PRESET_RANK.get(passed.get("preset"), 0) >= PRESET_RANK.get(preset, 0):
+        return {"state": "passed", "preset": passed.get("preset"),
+                "record": passed}
+    outcomes = test_outcomes(topic, preset)
+    done = [s for s in topic_slugs if s in outcomes]
+    return {"state": "in_progress" if done else "not_started",
+            "done": len(done), "total": len(topic_slugs), "outcomes": outcomes,
+            "passed_lower": passed}
+
+
 def stats() -> dict[str, Any]:
     data = _load()
     solved = data["solved"]

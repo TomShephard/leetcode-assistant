@@ -128,6 +128,11 @@ class App:
         _preset = roadmap.normalize_preset(self.config.get("preset"))
         self.preset_var = tk.StringVar(value=roadmap.PRESET_NAMES[_preset])
 
+        # Testing-tab state
+        self._active_test: dict[str, Any] | None = None  # {topic, preset, slugs}
+        self.test_preset_var = tk.StringVar(value=roadmap.PRESET_NAMES[_preset])
+        self.test_topic: str | None = None
+
         self._setup_style()
         self._build_ui()
         self.refresh_streak()
@@ -318,11 +323,13 @@ class App:
         solve_tab = ttk.Frame(self.notebook)
         practice_tab = ttk.Frame(self.notebook)
         refresh_tab = ttk.Frame(self.notebook)
+        testing_tab = ttk.Frame(self.notebook)
         stats_tab = ttk.Frame(self.notebook)
         self.notebook.add(workflow_tab, text="  Workflow  ")
         self.notebook.add(solve_tab, text="  Solve  ")
         self.notebook.add(practice_tab, text="  NeetCode Roadmap  ")
         self.notebook.add(refresh_tab, text="  Refresh  ")
+        self.notebook.add(testing_tab, text="  Testing  ")
         self.notebook.add(stats_tab, text="  Stats  ")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
@@ -330,6 +337,7 @@ class App:
         self._build_solve_tab(solve_tab)
         self._build_practice_tab(practice_tab)
         self._build_refresh_tab(refresh_tab)
+        self._build_testing_tab(testing_tab)
         self._build_stats_tab(stats_tab)
 
         self._bind_shortcuts()
@@ -616,8 +624,9 @@ class App:
             elapsed = None
             if getattr(self, "_solve_started", None) is not None:
                 elapsed = int(time.monotonic() - self._solve_started)
-            rating = self._rating_for(meta.get("slug", ""))
-            self._do_commit(path, meta, repo_url, seconds=elapsed, rating=rating)
+            rating, test_ctx = self._submit_context(meta.get("slug", ""))
+            self._do_commit(path, meta, repo_url, seconds=elapsed, rating=rating,
+                            test_ctx=test_ctx)
             if elapsed:
                 m, s = divmod(elapsed, 60)
                 self._solve_log(f"Solved in {m}m {s}s.\n", "muted")
@@ -723,6 +732,8 @@ class App:
             self._load_solve()
         elif "Refresh" in current:
             self._refresh_refresh_tab()
+        elif "Testing" in current:
+            self._refresh_testing_tab()
         elif "Stats" in current:
             self._refresh_stats()
 
@@ -814,6 +825,187 @@ class App:
         except (OSError, ValueError):
             pass
         self._fetch_problem_by_slug(slug)  # fetches fresh + opens the Solve tab
+
+    # ------------------------------------------------------------------ #
+    # Testing tab (topic gauntlets)
+    # ------------------------------------------------------------------ #
+    def _build_testing_tab(self, parent: tk.Misc) -> None:
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", padx=12, pady=(10, 4))
+        ttk.Label(bar, text="Test a whole topic back-to-back. Pass = solve every "
+                  "problem in it. Mark each as clean / unsure / used help.",
+                  style="TLabel").pack(side="left")
+        ttk.Label(bar, text="Set:", style="TLabel").pack(side="right", padx=(0, 4))
+        box = ttk.Combobox(bar, textvariable=self.test_preset_var, width=18,
+                           state="readonly",
+                           values=[name for _, name in roadmap.PRESETS])
+        box.pack(side="right", padx=6)
+        box.bind("<<ComboboxSelected>>", lambda e: self._refresh_testing_tab())
+
+        body = ttk.Frame(parent)
+        body.pack(fill="both", expand=True, padx=12, pady=6)
+
+        left = ttk.Labelframe(body, text="Topics", style="Card.TLabelframe")
+        left.pack(side="left", fill="y", padx=(0, 8))
+        self.test_topic_tree = ttk.Treeview(left, columns=("status",), show="tree headings",
+                                            height=18, selectmode="browse")
+        self.test_topic_tree.heading("#0", text="Topic")
+        self.test_topic_tree.heading("status", text="Status")
+        self.test_topic_tree.column("#0", width=190, anchor="w")
+        self.test_topic_tree.column("status", width=130, anchor="w")
+        self.test_topic_tree.pack(side="left", fill="y", padx=6, pady=6)
+        self.test_topic_tree.bind("<<TreeviewSelect>>", self._on_test_topic_selected)
+        self.test_topic_tree.tag_configure("passed", foreground="#1a7f37")
+
+        right = ttk.Labelframe(body, text="Problems", style="Card.TLabelframe")
+        right.pack(side="left", fill="both", expand=True)
+        ctl = ttk.Frame(right, style="Card.TFrame")
+        ctl.pack(fill="x", padx=6, pady=6)
+        self.test_start_btn = ttk.Button(ctl, text="Start / continue test",
+                                         style="Accent.TButton",
+                                         command=self._test_start_or_continue)
+        self.test_start_btn.pack(side="left", padx=4)
+        self.test_header_var = tk.StringVar(value="Pick a topic to test.")
+        ttk.Label(ctl, textvariable=self.test_header_var, style="Card.TLabel"
+                  ).pack(side="left", padx=8)
+        ttk.Button(ctl, text="Reset progress", command=self._test_reset
+                   ).pack(side="right", padx=4)
+
+        qwrap = ttk.Frame(right, style="Card.TFrame")
+        qwrap.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        self.test_q_tree = ttk.Treeview(qwrap, columns=("num", "diff", "title", "out"),
+                                        show="headings", selectmode="none")
+        for col, text, w, anchor in (
+            ("num", "#", 60, "center"), ("diff", "Difficulty", 90, "center"),
+            ("title", "Problem", 320, "w"), ("out", "Result", 110, "center")):
+            self.test_q_tree.heading(col, text=text)
+            self.test_q_tree.column(col, width=w, anchor=anchor)
+        self.test_q_tree.pack(side="left", fill="both", expand=True)
+        qsb = ttk.Scrollbar(qwrap, command=self.test_q_tree.yview)
+        qsb.pack(side="right", fill="y")
+        self.test_q_tree.configure(yscrollcommand=qsb.set)
+        self.test_q_tree.tag_configure("done", background="#e6f4ea")
+
+    def _test_preset_key(self) -> str:
+        name = self.test_preset_var.get()
+        for key, disp in roadmap.PRESETS:
+            if disp == name:
+                return key
+        return roadmap.DEFAULT_PRESET
+
+    def _topic_slugs(self, topic: str, preset: str) -> list[str]:
+        try:
+            return [p["slug"] for p in roadmap.topic_problems(topic, preset)]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _refresh_testing_tab(self) -> None:
+        if not hasattr(self, "test_topic_tree"):
+            return
+        preset = self._test_preset_key()
+        self.test_topic_tree.delete(*self.test_topic_tree.get_children())
+        for topic in roadmap.ROADMAP_ORDER:
+            slugs = self._topic_slugs(topic, preset)
+            st = progress.test_status(topic, preset, slugs)
+            if st["state"] == "passed":
+                label = f"PASS ({roadmap.PRESET_NAMES.get(st['preset'], st['preset'])})"
+                tags = ("passed",)
+            elif st["state"] == "in_progress":
+                label = f"{st['done']}/{st['total']} done"
+                tags = ()
+            else:
+                label = f"0/{len(slugs)}"
+                tags = ()
+            self.test_topic_tree.insert("", "end", iid=topic, text=topic,
+                                        values=(label,), tags=tags)
+        if self.test_topic:
+            self._render_test_problems(self.test_topic)
+
+    def _on_test_topic_selected(self, _event: Any) -> None:
+        sel = self.test_topic_tree.selection()
+        if not sel:
+            return
+        self.test_topic = sel[0]
+        self._render_test_problems(self.test_topic)
+
+    def _render_test_problems(self, topic: str) -> None:
+        preset = self._test_preset_key()
+        problems = []
+        try:
+            problems = roadmap.topic_problems(topic, preset)
+        except Exception:  # noqa: BLE001
+            pass
+        st = progress.test_status(topic, preset, [p["slug"] for p in problems])
+        outcomes = (st.get("record", {}).get("problems") if st["state"] == "passed"
+                    else None)
+        passed_map = {}
+        if outcomes:
+            passed_map = {p["slug"]: p.get("outcome", "done") for p in outcomes}
+        else:
+            passed_map = st.get("outcomes", {})
+        self.test_q_tree.delete(*self.test_q_tree.get_children())
+        for p in problems:
+            out = passed_map.get(p["slug"], "")
+            tags = ("done",) if out else ()
+            self.test_q_tree.insert("", "end", iid=p["slug"],
+                                    values=(p["number"], p["difficulty"].capitalize(),
+                                            p["title"], out or "-"), tags=tags)
+        done = sum(1 for p in problems if p["slug"] in passed_map)
+        if st["state"] == "passed":
+            self.test_header_var.set(f"{topic}: PASSED "
+                                     f"({roadmap.PRESET_NAMES.get(st['preset'], st['preset'])})")
+        else:
+            self.test_header_var.set(f"{topic}: {done}/{len(problems)} done "
+                                     f"({roadmap.PRESET_NAMES[preset]})")
+
+    def _test_next_slug(self, topic: str, preset: str) -> str | None:
+        slugs = self._topic_slugs(topic, preset)
+        outcomes = progress.test_outcomes(topic, preset)
+        for s in slugs:
+            if s not in outcomes:
+                return s
+        return None
+
+    def _test_start_or_continue(self) -> None:
+        if not self.test_topic:
+            messagebox.showinfo("Pick a topic", "Select a topic to test.")
+            return
+        topic = self.test_topic
+        preset = self._test_preset_key()
+        slugs = self._topic_slugs(topic, preset)
+        if not slugs:
+            messagebox.showinfo("No problems", "That topic has no problems at this set.")
+            return
+        st = progress.test_status(topic, preset, slugs)
+        if st["state"] == "passed":
+            if not messagebox.askyesno("Already passed",
+                                       f"{topic} is already passed at "
+                                       f"{roadmap.PRESET_NAMES.get(st['preset'], st['preset'])}. "
+                                       "Run it again?"):
+                return
+        progress.start_test(topic, preset)
+        self._active_test = {"topic": topic, "preset": preset, "slugs": slugs}
+        nxt = self._test_next_slug(topic, preset)
+        if not nxt:
+            messagebox.showinfo("Done", "All problems already have a result. "
+                                "Use Reset progress to retake.")
+            return
+        self.log(f"Testing {topic} ({roadmap.PRESET_NAMES[preset]}): "
+                 f"next is {nxt}.\n", "info")
+        self._fetch_problem_by_slug(nxt)
+
+    def _test_reset(self) -> None:
+        if not self.test_topic:
+            return
+        if not messagebox.askyesno("Reset", f"Clear in-progress results for "
+                                   f"{self.test_topic}? (A recorded pass is kept.)"):
+            return
+        data = progress._load()
+        data.get("test_progress", {}).pop(self.test_topic, None)
+        progress._save(data)
+        if self._active_test and self._active_test.get("topic") == self.test_topic:
+            self._active_test = None
+        self._refresh_testing_tab()
 
     # ------------------------------------------------------------------ #
     # Stats tab (heatmap + summary)
@@ -1438,8 +1630,8 @@ class App:
                     "solution. Submit anyway?"):
                     self.log("Submit cancelled.\n", "muted")
                     return
-            rating = self._rating_for(meta.get("slug", ""))
-            self._do_commit(path, meta, repo_url, rating=rating)
+            rating, test_ctx = self._submit_context(meta.get("slug", ""))
+            self._do_commit(path, meta, repo_url, rating=rating, test_ctx=test_ctx)
 
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
 
@@ -1481,8 +1673,90 @@ class App:
         self.root.wait_window(win)
         return result["v"]
 
+    # -- Topic-test outcome wiring ------------------------------------------ #
+    _OUTCOME_TO_RATING = {"clean": "aced", "unsure": "good", "help": "hard"}
+
+    def _submit_context(self, slug: str) -> tuple[str | None, dict[str, Any] | None]:
+        """Decide the SRS rating and (if mid-test) the test context for a submit.
+
+        During an active topic test that includes this problem, the single
+        clean/unsure/help dialog doubles as the confidence rating, so we don't
+        prompt twice. Otherwise fall back to the normal refresh rating.
+        """
+        active = self._active_test
+        if active and slug in active.get("slugs", []):
+            outcome = self._ask_test_outcome()
+            if outcome is None:
+                outcome = "unsure"
+            rating = self._OUTCOME_TO_RATING.get(outcome)
+            test_ctx = {
+                "topic": active["topic"],
+                "preset": active["preset"],
+                "slugs": active["slugs"],
+                "outcome": outcome,
+            }
+            return rating, test_ctx
+        return self._rating_for(slug), None
+
+    def _ask_test_outcome(self) -> str | None:
+        """Modal: how did this test problem go? Returns clean/unsure/help."""
+        win = tk.Toplevel(self.root)
+        win.title("Topic test -- how did it go?")
+        win.configure(bg=CARD)
+        win.transient(self.root)
+        win.resizable(False, False)
+        result = {"v": None}
+        ttk.Label(win, text="Log this problem's outcome for the topic test:",
+                  style="Card.TLabel", padding=12).pack()
+        row = ttk.Frame(win, style="Card.TFrame")
+        row.pack(padx=12, pady=(0, 12))
+
+        def choose(v: str) -> None:
+            result["v"] = v
+            win.destroy()
+
+        for val, label in (("clean", "Solved clean (no help)"),
+                           ("unsure", "Solved but unsure"),
+                           ("help", "Used help / a hint")):
+            ttk.Button(row, text=label, width=30,
+                       command=lambda v=val: choose(v)).pack(pady=3)
+        win.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        self.root.wait_window(win)
+        return result["v"]
+
+    def _handle_test_result(self, test_ctx: dict[str, Any] | None,
+                            test_result: dict[str, Any]) -> None:
+        """React to a recorded test outcome after a successful commit."""
+        if not test_ctx:
+            return
+        topic = test_ctx.get("topic", "")
+        if test_result.get("status") == "passed":
+            rec = test_result.get("record", {})
+            self._active_test = None
+            if rec.get("clean_pass"):
+                detail = "clean sweep -- every problem solved with no help."
+            else:
+                detail = (f"{rec.get('clean', 0)} clean, "
+                          f"{rec.get('unsure', 0)} unsure, "
+                          f"{rec.get('help', 0)} used help.")
+            self.log(f"Topic test PASSED: {topic} -- {detail}\n", "pass")
+            messagebox.showinfo(
+                "Topic test passed",
+                f"You completed the {topic} topic test!\n\n{detail}\n\n"
+                "It's now recorded on your private repo README.")
+        else:
+            done = test_result.get("done", 0)
+            total = test_result.get("total", 0)
+            self.log(f"Topic test progress: {topic} -- {done}/{total} done.\n", "info")
+        self._refresh_testing_tab()
+
     def _do_commit(self, path: Path, meta: dict[str, Any], repo_url: str,
-                   seconds: int | None = None, rating: str | None = None) -> None:
+                   seconds: int | None = None, rating: str | None = None,
+                   test_ctx: dict[str, Any] | None = None) -> None:
         ext = SUPPORTED_LANGUAGES.get(meta.get("language", "python"), {}).get("ext", "txt")
         self.log("Tests passed. Checking solution complexity "
                  "(this can take a few seconds), then committing...\n", "info")
@@ -1499,17 +1773,22 @@ class App:
                 topic=topic, optimality=cx.verdict, url=meta.get("url"), seconds=seconds)
             review = progress.schedule_review(
                 meta["slug"], {**meta, "topic": topic}, rating=rating)
+            test_result = None
+            if test_ctx:
+                test_result = progress.record_test_outcome(
+                    test_ctx["topic"], test_ctx["preset"], meta["slug"],
+                    test_ctx["outcome"], test_ctx["slugs"])
             result = repo.commit_and_push(
                 repo_url, path,
                 number=meta["number"], title=meta["title"],
                 difficulty=meta["difficulty"], slug=meta["slug"], language_ext=ext)
-            return result, cx, review
+            return result, cx, review, test_result
 
         def done(payload: Any, err: Exception | None) -> None:
             if err:
                 self.log(f"Git error: {err}\n", "fail")
                 return
-            result, cx, review = payload
+            result, cx, review, test_result = payload
             if cx.verdict == "optimal":
                 self.log(f"Complexity: {cx.summary()} -- optimal.\n", "pass")
             elif cx.verdict == "suboptimal":
@@ -1520,6 +1799,8 @@ class App:
             if review:
                 self.log(f"Next refresh: {review['due']} "
                          f"({progress.level_name(review['level'])}).\n", "info")
+            if test_result:
+                self._handle_test_result(test_ctx, test_result)
             committed = result.get("committed")
             if not committed:
                 self.log(f"Nothing to commit ({result.get('reason', 'no changes')}) "
@@ -1535,6 +1816,7 @@ class App:
             self._refresh_practice_after_solve()
             self._refresh_stats()
             self._refresh_refresh_tab()
+            self._refresh_testing_tab()
             # Optional local cleanup once it's safely committed.
             if committed and self.delete_after.get():
                 removed = scaffold.cleanup_solution(self._workdir_path(), meta)
