@@ -123,13 +123,19 @@ if scale_idx is None:
 random.seed(1)
 
 def make_args(n):
+    # Use DISTINCT values for the scaled list. Random values from a small range
+    # are riddled with duplicates, which lets duplicate-detection solutions
+    # (e.g. brute-force "contains duplicate") return on the very first pair and
+    # look O(1). Distinct values remove that accidental short-circuit so we
+    # measure the genuine worst case.
+    distinct = random.sample(range(n * 10 + 1), n)
     args = []
     for i, a in enumerate(base_args):
         if i == scale_idx:
             if elem_kind == "num":
-                args.append([random.randint(0, 10 * n) for _ in range(n)])
+                args.append(list(distinct))
             else:
-                args.append([str(random.randint(0, 10 * n)) for _ in range(n)])
+                args.append([str(v) for v in distinct])
         elif isinstance(a, (int, float)) and not isinstance(a, bool):
             args.append(-1)   # force worst case (no early exit)
         else:

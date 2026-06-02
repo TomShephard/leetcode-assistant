@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.8.2
+- Editor: **Ctrl+Backspace** deletes the previous word and **Ctrl+Delete** the
+  next one, one token at a time (word / whitespace / symbol run), like a real
+  IDE; at a line edge it joins the adjacent line.
+- Complexity check: the probe now feeds **distinct** values to the solution.
+  Random small-range inputs were full of duplicates, so a brute-force
+  duplicate finder (e.g. an O(n^2) Contains Duplicate) would hit a match on the
+  first pair and look O(1) -> wrongly "optimal". Distinct inputs remove that
+  accidental early-exit, so it measures the genuine worst case.
+
 ## v1.8.1
 - Solve tab: the **Tests / output** console now lives in a resizable pane.
   Drag the sash between the editor and the console to grow the output (handy

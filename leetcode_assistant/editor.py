@@ -69,6 +69,8 @@ class CodeEditor(tk.Frame):
         self.text.bind("<Shift-Tab>", self._on_shift_tab)
         self.text.bind("<Return>", self._on_return)
         self.text.bind("<BackSpace>", self._on_backspace)
+        self.text.bind("<Control-BackSpace>", self._on_ctrl_backspace)
+        self.text.bind("<Control-Delete>", self._on_ctrl_delete)
         self.text.bind("<ButtonRelease-1>", lambda e: (self._highlight_current_line(),
                                                        self._redraw_gutter()))
         self.text.bind("<Configure>", lambda e: self._redraw_gutter())
@@ -234,6 +236,60 @@ class CodeEditor(tk.Frame):
             self.text.delete(f"insert-{remove}c", "insert")
             return "break"
         return ""  # normal single-character backspace
+
+    @staticmethod
+    def _word_run(text: str, from_end: bool) -> int:
+        """Length of the token to delete at one edge of `text`: a run of
+        whitespace, a run of word characters, or a run of symbols -- whichever
+        the edge character belongs to. Deletes one category at a time, like an
+        IDE's word-wise delete."""
+        if not text:
+            return 0
+        edge = text[-1] if from_end else text[0]
+        if edge.isspace():
+            pat = r"\s+$" if from_end else r"^\s+"
+        elif edge.isalnum() or edge == "_":
+            pat = r"\w+$" if from_end else r"^\w+"
+        else:
+            pat = r"[^\w\s]+$" if from_end else r"^[^\w\s]+"
+        m = re.search(pat, text)
+        return len(m.group(0)) if m else 1
+
+    def _on_ctrl_backspace(self, _event) -> str:
+        """Delete the word (or whitespace/symbol run) before the cursor."""
+        if self.text.tag_ranges("sel"):
+            self.text.delete("sel.first", "sel.last")
+            return "break"
+        before = self.text.get("insert linestart", "insert")
+        if before == "":
+            # start of line: merge into the previous line
+            if self.text.compare("insert", "!=", "1.0"):
+                self.text.delete("insert-1c", "insert")
+            self.after(1, self._redraw_gutter)
+            return "break"
+        remove = self._word_run(before, from_end=True)
+        self.text.delete(f"insert-{remove}c", "insert")
+        self.highlight_all()
+        self._redraw_gutter()
+        return "break"
+
+    def _on_ctrl_delete(self, _event) -> str:
+        """Delete the word (or whitespace/symbol run) after the cursor."""
+        if self.text.tag_ranges("sel"):
+            self.text.delete("sel.first", "sel.last")
+            return "break"
+        after = self.text.get("insert", "insert lineend")
+        if after == "":
+            # end of line: pull the next line up
+            if self.text.compare("insert", "!=", "end-1c"):
+                self.text.delete("insert", "insert+1c")
+            self.after(1, self._redraw_gutter)
+            return "break"
+        remove = self._word_run(after, from_end=False)
+        self.text.delete("insert", f"insert+{remove}c")
+        self.highlight_all()
+        self._redraw_gutter()
+        return "break"
 
     def _on_open_pair(self, event) -> str:
         opener = event.char
