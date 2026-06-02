@@ -1,11 +1,11 @@
-"""A simple Tkinter GUI for leetcode-cli.
+"""A simple Tkinter GUI for leetcode-assistant.
 
 Wraps the same library functions the command-line uses (data / scaffold /
 runner / repo / progress) behind buttons, so you can fetch, test, and submit
 without typing commands. Network, test, and git work runs on background
 threads to keep the window responsive.
 
-Launch with:  py -m leetcode_cli gui
+Launch with:  py -m leetcode_assistant gui
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import glob
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from tkinter import filedialog, font as tkfont, messagebox, ttk
 from . import config as cfg
 from . import data, progress, repo, roadmap, runner, scaffold
 from .config import SUPPORTED_LANGUAGES, VALID_DIFFICULTIES
+from .editor import CodeEditor
 
 LANG_CHOICES = ["python", "javascript"]
 DIFF_CHOICES = list(VALID_DIFFICULTIES) + ["any"]
@@ -91,9 +93,9 @@ def open_in_editor(path: Path, editor: str = "") -> str:
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        root.title("Leetcode GUI")
-        root.geometry("980x860")
-        root.minsize(820, 660)
+        root.title("Leetcode Assistant")
+        root.geometry("1240x900")
+        root.minsize(960, 700)
         root.configure(bg=BG)
         self._set_window_icon()
 
@@ -110,6 +112,7 @@ class App:
         self.editor_var = tk.StringVar(value=self.config.get("editor", ""))
         self.delete_after = tk.BooleanVar(value=bool(self.config.get("delete_after_submit", False)))
         self.target_var = tk.StringVar(value="(none yet)")
+        self.solve_title_var = tk.StringVar(value="No problem loaded.")
         self.streak_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready.")
 
@@ -198,27 +201,54 @@ class App:
         style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10))
 
     def _set_window_icon(self) -> None:
-        # Use icon data embedded in the source (base64) rather than reading a
-        # bundled file -- the latter isn't reliably found inside a frozen exe,
-        # which left the title bar showing the default icon.
+        # Icon data is embedded in the source (base64) so we never depend on a
+        # bundled file being found inside the frozen exe.
         try:
             from . import _icondata
         except ImportError:
             return
+        # PhotoImage handles the taskbar / non-Windows platforms.
         try:
             self._icon_img = tk.PhotoImage(data=_icondata.PNG_B64)  # keep ref
             self.root.iconphoto(True, self._icon_img)
         except (tk.TclError, AttributeError):
             pass
-        if sys.platform.startswith("win"):
+        if not sys.platform.startswith("win"):
+            return
+        # Write the .ico to disk and force it onto the window's title bar via
+        # Win32 WM_SETICON -- Tk's iconbitmap/iconphoto don't reliably set the
+        # Windows title-bar icon in a packaged app.
+        try:
+            import base64
+            import tempfile
+            self._ico_path = Path(tempfile.gettempdir()) / "leetcode_assistant.ico"
+            self._ico_path.write_bytes(base64.b64decode(_icondata.ICO_B64))
             try:
-                import base64
-                import tempfile
-                ico_path = Path(tempfile.gettempdir()) / "leetcode_gui.ico"
-                ico_path.write_bytes(base64.b64decode(_icondata.ICO_B64))
-                self.root.iconbitmap(default=str(ico_path))
-            except (tk.TclError, OSError, AttributeError):
+                self.root.iconbitmap(default=str(self._ico_path))
+            except tk.TclError:
                 pass
+            # Defer until the window exists, then push via Win32.
+            self.root.after(60, self._win32_set_titlebar_icon)
+        except (OSError, AttributeError):
+            pass
+
+    def _win32_set_titlebar_icon(self) -> None:
+        try:
+            import ctypes
+            self.root.update_idletasks()
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            IMAGE_ICON, LR_LOADFROMFILE = 1, 0x00000010
+            WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+            path = str(self._ico_path)
+            small = user32.LoadImageW(None, path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+            big = user32.LoadImageW(None, path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+            if hwnd and small:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+            if hwnd and big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+        except Exception:  # noqa: BLE001 - icon is cosmetic, never crash on it
+            pass
 
     def _card(self, parent: tk.Misc, title: str) -> ttk.Frame:
         lf = ttk.Labelframe(parent, text=title, style="Card.TLabelframe")
@@ -269,7 +299,7 @@ class App:
         header.pack(fill="x")
         htext = ttk.Frame(header, style="Header.TFrame")
         htext.pack(side="left", padx=18, pady=12)
-        ttk.Label(htext, text="LeetCode Daily", style="HeaderTitle.TLabel").pack(anchor="w")
+        ttk.Label(htext, text="Leetcode Assistant", style="HeaderTitle.TLabel").pack(anchor="w")
         ttk.Label(htext, text="fetch  -  solve  -  test  -  submit",
                   style="HeaderSub.TLabel").pack(anchor="w")
         ttk.Label(header, textvariable=self.streak_var,
@@ -283,12 +313,15 @@ class App:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=6, pady=(6, 0))
         workflow_tab = ttk.Frame(self.notebook)
+        solve_tab = ttk.Frame(self.notebook)
         practice_tab = ttk.Frame(self.notebook)
         self.notebook.add(workflow_tab, text="  Workflow  ")
+        self.notebook.add(solve_tab, text="  Solve  ")
         self.notebook.add(practice_tab, text="  NeetCode Roadmap  ")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self._build_workflow_tab(workflow_tab)
+        self._build_solve_tab(solve_tab)
         self._build_practice_tab(practice_tab)
 
     def _build_workflow_tab(self, parent: tk.Misc) -> None:
@@ -360,6 +393,189 @@ class App:
         self.log_widget.tag_configure("fail", foreground="#f87171")
         self.log_widget.tag_configure("info", foreground="#60a5fa")
         self.log_widget.tag_configure("muted", foreground="#94a3b8")
+
+    # ------------------------------------------------------------------ #
+    # Solve tab -- in-app code editor (experimental)
+    # ------------------------------------------------------------------ #
+    def _build_solve_tab(self, parent: tk.Misc) -> None:
+        self.solve_path: Path | None = None
+        self.solve_meta: dict[str, Any] | None = None
+
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", padx=10, pady=(8, 4))
+        ttk.Label(bar, textvariable=self.solve_title_var,
+                  style="Target.TLabel").pack(side="left")
+        ttk.Button(bar, text="Reload", command=self._load_solve).pack(side="right", padx=3)
+        ttk.Button(bar, text="Open in PyCharm", command=self.open_file).pack(side="right", padx=3)
+        self.solve_submit_btn = ttk.Button(bar, text="Submit", style="Accent.TButton",
+                                           command=self._solve_submit)
+        self.solve_submit_btn.pack(side="right", padx=3)
+        self.solve_test_btn = ttk.Button(bar, text="Run tests", style="Accent.TButton",
+                                         command=self._solve_run_tests)
+        self.solve_test_btn.pack(side="right", padx=3)
+        self.solve_save_btn = ttk.Button(bar, text="Save", command=self._solve_save)
+        self.solve_save_btn.pack(side="right", padx=3)
+
+        # main split: description | editor
+        split = tk.PanedWindow(parent, orient="horizontal", sashwidth=6,
+                               bg=BORDER, bd=0)
+        split.pack(fill="both", expand=True, padx=10, pady=6)
+
+        desc_wrap = ttk.Labelframe(split, text="Problem", style="Card.TLabelframe")
+        self.desc_text = tk.Text(desc_wrap, wrap="word", state="disabled",
+                                 bg=CARD, fg=TEXT, relief="flat", padx=10, pady=8,
+                                 font=("Segoe UI", 10), width=42)
+        self.desc_text.pack(side="left", fill="both", expand=True)
+        dsb = ttk.Scrollbar(desc_wrap, command=self.desc_text.yview)
+        dsb.pack(side="right", fill="y")
+        self.desc_text.configure(yscrollcommand=dsb.set)
+        split.add(desc_wrap, minsize=260, width=440)
+
+        edit_wrap = ttk.Labelframe(split, text="Your solution", style="Card.TLabelframe")
+        self.code_editor = CodeEditor(edit_wrap, language="python")
+        self.code_editor.pack(fill="both", expand=True, padx=2, pady=2)
+        split.add(edit_wrap, minsize=420)
+
+        # bottom: test/output console
+        out = ttk.Labelframe(parent, text="Tests / output", style="Card.TLabelframe")
+        out.pack(fill="x", padx=10, pady=(0, 8))
+        mono = tkfont.Font(family="Consolas", size=10)
+        self.solve_output = tk.Text(out, wrap="word", height=8, state="disabled",
+                                    background=CONSOLE_BG, foreground=CONSOLE_FG,
+                                    relief="flat", font=mono, padx=10, pady=6)
+        self.solve_output.pack(side="left", fill="both", expand=True)
+        osb = ttk.Scrollbar(out, command=self.solve_output.yview)
+        osb.pack(side="right", fill="y")
+        self.solve_output.configure(yscrollcommand=osb.set)
+        for tag, col in (("pass", "#34d399"), ("fail", "#f87171"),
+                         ("info", "#60a5fa"), ("muted", "#94a3b8")):
+            self.solve_output.tag_configure(tag, foreground=col)
+
+    def _solve_log(self, text: str, tag: str | None = None) -> None:
+        self.solve_output.configure(state="normal")
+        self.solve_output.insert("end", text, tag or ())
+        self.solve_output.see("end")
+        self.solve_output.configure(state="disabled")
+
+    def _set_desc(self, text: str) -> None:
+        self.desc_text.configure(state="normal")
+        self.desc_text.delete("1.0", "end")
+        self.desc_text.insert("1.0", text)
+        self.desc_text.configure(state="disabled")
+
+    def _load_solve(self) -> None:
+        path, meta = self.resolve_target()
+        if not path or not meta:
+            self.solve_title_var.set("No problem loaded -- fetch one in the Workflow tab.")
+            self._set_desc("Fetch a problem first, then come here to solve it.")
+            self.code_editor.set_code("")
+            self.solve_path = self.solve_meta = None
+            return
+        self.solve_path, self.solve_meta = path, meta
+        self.solve_title_var.set(
+            f"{meta['number']}. {meta['title']}  [{meta['difficulty'].capitalize()}]")
+        desc = meta.get("description") or self._description_from_file(path, meta)
+        self._set_desc(desc or "(no description stored)")
+        lang = meta.get("language", "python")
+        try:
+            self.code_editor.set_code(path.read_text(encoding="utf-8"), language=lang)
+        except OSError as exc:
+            self._solve_log(f"Could not read file: {exc}\n", "fail")
+        self.code_editor.focus_editor()
+
+    @staticmethod
+    def _description_from_file(path: Path, meta: dict[str, Any]) -> str:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+        if meta.get("language") == "javascript":
+            m = re.search(r"/\*(.*?)\*/", text, re.S)
+            body = m.group(1) if m else ""
+            return "\n".join(line.lstrip(" *") for line in body.splitlines()).strip()
+        m = re.search(r'"""(.*?)"""', text, re.S)
+        return (m.group(1).strip() if m else "")
+
+    def _solve_save(self) -> bool:
+        if not self.solve_path:
+            return False
+        try:
+            self.solve_path.write_text(self.code_editor.get_code(), encoding="utf-8")
+            self.status_var.set(f"Saved {self.solve_path.name}")
+            return True
+        except OSError as exc:
+            self._solve_log(f"Save failed: {exc}\n", "fail")
+            return False
+
+    def _solve_run_tests(self) -> None:
+        if not self.solve_path or not self.solve_meta:
+            messagebox.showinfo("Nothing to test", "Fetch a problem first.")
+            return
+        if not self._solve_save():
+            return
+        self.solve_output.configure(state="normal")
+        self.solve_output.delete("1.0", "end")
+        self.solve_output.configure(state="disabled")
+        self._solve_log("Running tests...\n", "info")
+        path, meta = self.solve_path, self.solve_meta
+        self.run_bg(lambda: runner.run_tests(path, meta),
+                    lambda r, e: self._solve_show_report(r, e))
+
+    def _solve_show_report(self, report: Any, err: Exception | None) -> bool:
+        if err:
+            self._solve_log(f"Error: {err}\n", "fail")
+            return False
+        if not report.ran:
+            self._solve_log(f"Skipped: {report.skipped_reason}\n", "muted")
+            return False
+        for r in report.results:
+            if r.passed:
+                self._solve_log(f"  [PASS] case {r.index + 1}\n", "pass")
+            else:
+                self._solve_log(f"  [FAIL] case {r.index + 1}\n", "fail")
+                self._solve_log(f"         input:    {' | '.join(r.inputs)}\n", "muted")
+                self._solve_log(f"         expected: {r.expected}\n", "muted")
+                self._solve_log(f"         got:      {r.error or r.actual}\n", "muted")
+        tag = "pass" if report.passed else "fail"
+        self._solve_log(f"  {report.passed_count}/{report.total} cases passed.\n", tag)
+        return report.passed
+
+    def _solve_submit(self) -> None:
+        if not self.solve_path or not self.solve_meta:
+            messagebox.showinfo("Nothing to submit", "Fetch a problem first.")
+            return
+        if not self._solve_save():
+            return
+        repo_url = self.repo_var.get().strip()
+        if not repo_url:
+            messagebox.showerror("No repo", "Set your private repo URL in the Workflow tab.")
+            return
+        path, meta = self.solve_path, self.solve_meta
+        self.solve_output.configure(state="normal")
+        self.solve_output.delete("1.0", "end")
+        self.solve_output.configure(state="disabled")
+        self._solve_log("Submitting...\n", "info")
+
+        def after_tests(report: Any, err: Exception | None) -> None:
+            if err:
+                self._solve_log(f"Error: {err}\n", "fail")
+                return
+            passed = self._solve_show_report(report, None)
+            has_tests = bool(meta.get("test_cases"))
+            if has_tests and not (report.ran and passed):
+                msg = ("Tests did not pass" if report.ran else
+                       "Tests could not run (does the code compile?)")
+                self._solve_log(f"{msg} -- nothing committed.\n", "fail")
+                messagebox.showerror("Tests must pass", msg + ", so it was not committed.")
+                return
+            if not has_tests and not messagebox.askyesno(
+                    "No test cases", "No automatic tests for this problem. Submit anyway?"):
+                self._solve_log("Cancelled.\n", "muted")
+                return
+            self._do_commit(path, meta, repo_url)
+            self._solve_log("Committed (see the Workflow Output for details).\n", "pass")
+
+        self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
 
     # ------------------------------------------------------------------ #
     # NeetCode roadmap tab
@@ -455,6 +671,8 @@ class App:
         if "Roadmap" in current and not self.practice_loaded:
             self.practice_loaded = True
             self._populate_topics()
+        elif "Solve" in current:
+            self._load_solve()
 
     def _on_preset_changed(self) -> None:
         if self._current_mode() == "neetcode":
@@ -722,8 +940,9 @@ class App:
         self._busy = busy
         state = "disabled" if busy else "normal"
         buttons = [self.fetch_btn, self.test_btn, self.submit_btn]
-        if hasattr(self, "practice_fetch_btn"):
-            buttons.append(self.practice_fetch_btn)
+        for name in ("practice_fetch_btn", "solve_test_btn", "solve_submit_btn"):
+            if hasattr(self, name):
+                buttons.append(getattr(self, name))
         for btn in buttons:
             btn.configure(state=state)
         self.status_var.set("Working..." if busy else "Ready.")

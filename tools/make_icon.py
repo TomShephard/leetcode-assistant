@@ -1,6 +1,6 @@
 """Generate the app icon with no third-party deps.
 
-Produces, in leetcode_cli/:
+Produces, in leetcode_assistant/:
   icon.png        64x64 PNG (used for PyInstaller and previews)
   icon.ico        multi-size BMP-based ICO (16/32/48/64) -- what Windows
                   title bars want; PNG-encoded ICOs often don't render small
@@ -18,7 +18,7 @@ import struct
 import zlib
 from pathlib import Path
 
-OUT_DIR = Path(__file__).resolve().parent.parent / "leetcode_cli"
+OUT_DIR = Path(__file__).resolve().parent.parent / "leetcode_assistant"
 BG = (47, 111, 235)        # accent blue
 CHECK = (255, 255, 255)
 SIZES = [16, 32, 48, 64]

@@ -156,6 +156,7 @@ def scaffold(problem: Problem, lang: str, dest_dir: Path) -> tuple[Path, dict[st
         "params": params,
         "filename": filename,
         "url": problem.url,
+        "description": problem.description,
         "test_cases": cases,
     }
     _write_meta(dest_dir, problem.slug, meta)

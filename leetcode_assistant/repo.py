@@ -1,7 +1,7 @@
 """Commit + push a passing solution to the user's private GitHub repo.
 
 Uses the `gh` CLI when available (nicer auth handling), otherwise falls back
-to raw `git`. A local clone is kept at ~/.leetcode-cli/repo so we never touch
+to raw `git`. A local clone is kept at ~/.leetcode-assistant/repo so we never touch
 the user's working directory's git state.
 """
 

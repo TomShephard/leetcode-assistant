@@ -1,10 +1,11 @@
-# leetcode-cli
+﻿# Leetcode Assistant
 
-A small command-line tool for a daily LeetCode habit. It fetches a problem,
-scaffolds a solution file with the description as a header comment, runs your
-solution against the problem's own example test cases, and -- when it passes --
-commits and pushes it to your private GitHub solutions repo. It also tracks a
-local solve streak.
+A desktop app (and CLI) for a daily LeetCode habit. Fetch a problem, **solve it
+in-app** in a built-in code editor, run it against the problem's own example
+test cases, and -- when it passes -- commit and push it to your private GitHub
+solutions repo. It tracks a local solve streak, follows the NeetCode roadmap,
+gauges whether your solution is optimal or brute-force, and keeps a presentable
+auto-updating README in your solutions repo.
 
 ```
 leetcode fetch      grab a (random or specific) problem and scaffold a file
@@ -59,10 +60,18 @@ strings, trees, graphs, DP, and ~20 more) with every problem in each category,
 not just the curated ones. From the CLI, the topic commands also accept any
 LeetCode topic.
 
-The roadmap dataset ships with the tool (`leetcode_cli/neetcode_roadmap.json`),
+The roadmap dataset ships with the tool (`leetcode_assistant/neetcode_roadmap.json`),
 so it works offline and instantly. It was extracted from neetcode.io (which
 carries the blind75 / neetcode150 / neetcode250 flags); refresh it any time with
 `py tools/refresh_neetcode_data.py`.
+
+## Solve in-app (built-in editor)
+
+The GUI's **Solve** tab puts the problem description next to a code editor
+(line numbers, tab-to-spaces, auto-indent, syntax highlighting) with Run-tests
+and Submit right there -- so you can solve a problem end to end without opening
+a separate IDE. The Workflow tab's "Open in editor" still works if you prefer
+PyCharm/VS Code.
 
 ## Complexity check and a self-updating solutions README
 
@@ -70,10 +79,9 @@ On submit (once the tests pass), the tool estimates the solution's time
 complexity *empirically* -- it runs your code on inputs of growing size and
 fits the growth curve -- and compares it against the problem's known-optimal
 class. A brute-force Two Sum (nested loops, O(n^2)) is flagged **suboptimal**
-("half solved"); the hashing version (O(n)) is **optimal**. It's a heuristic:
-it only grades Python solutions whose first argument is a list of numbers, and
-only for problems with a known target complexity -- everything else is reported
-without a verdict.
+("half solved"); the hashing version (O(n)) is **optimal**. It's a heuristic
+(Python solutions whose first argument is a list, for problems with a known
+target complexity); everything else is reported without a verdict.
 
 Each submission also rewrites a presentable `README.md` in your **solutions
 repo** from your full solve log: summary badges (solved / streak / per-
@@ -88,7 +96,7 @@ Build a double-clickable Windows executable of the GUI:
 build-exe.cmd
 ```
 
-This installs PyInstaller (if needed) and produces `dist\LeetCodeCLI.exe`. You
+This installs PyInstaller (if needed) and produces `dist\LeetCodeAssistant.exe`. You
 can move that EXE anywhere (desktop, Start menu) and run it without Python
 installed. Note: `git` (and optionally `gh`) still need to be installed for the
 submit step, and Node for running JavaScript solutions.
@@ -114,7 +122,7 @@ config), so fetched files keep landing in the same place.
 Prefer buttons over a terminal? Run:
 
 ```
-py -m leetcode_cli gui
+py -m leetcode_assistant gui
 ```
 
 or just double-click `leetcode-gui.cmd` in this folder. The window lets you:
@@ -184,7 +192,7 @@ The first time you run any command, you'll be asked for:
 2. Preferred language (`python` or `javascript`)
 3. Default difficulty filter (`easy` / `medium` / `hard` / `any`)
 
-These are saved to `~/.leetcode-cli/config.json`. Re-run setup any time with
+These are saved to `~/.leetcode-assistant/config.json`. Re-run setup any time with
 `leetcode config`, or view current settings with `leetcode config --show`.
 
 ## Typical day
@@ -233,7 +241,7 @@ directory by default; pass a filename to target a specific one
   `"github_dataset_url"` in the config to pull from a JSON dataset hosted on
   GitHub instead. Note that most such datasets don't ship runnable test cases,
   so `test` will have nothing to run for those.
-- **Streak** is computed from `~/.leetcode-cli/progress.json`, which logs every
+- **Streak** is computed from `~/.leetcode-assistant/progress.json`, which logs every
   solved problem with its date, number, name, and difficulty. The streak counts
   consecutive days (ending today or yesterday) with at least one solve.
 
@@ -247,4 +255,4 @@ directory by default; pass a filename to target a specific one
   you to confirm before committing.
 - Premium/locked problems can't be fetched (no public content).
 - Config, progress, and the local clone of your repo all live under
-  `~/.leetcode-cli/`.
+  `~/.leetcode-assistant/`.

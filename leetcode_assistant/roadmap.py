@@ -88,7 +88,7 @@ class RoadmapError(RuntimeError):
 # --------------------------------------------------------------------------- #
 def _fetch_raw() -> list[dict[str, Any]]:
     req = urllib.request.Request(
-        NEETCODE_DATA_URL, headers={"User-Agent": "leetcode-cli"})
+        NEETCODE_DATA_URL, headers={"User-Agent": "leetcode-assistant"})
     try:
         with urllib.request.urlopen(req, timeout=25) as resp:
             return json.loads(resp.read().decode("utf-8"))

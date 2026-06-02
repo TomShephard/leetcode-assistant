@@ -1,4 +1,4 @@
-"""Local solve log + streak calculation (~/.leetcode-cli/progress.json)."""
+"""Local solve log + streak calculation (~/.leetcode-assistant/progress.json)."""
 
 from __future__ import annotations
 

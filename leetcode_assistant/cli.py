@@ -267,7 +267,7 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
             print("  Pushed to remote.")
         else:
             print(f"  Push failed: {result.get('push_error', 'unknown error')}")
-            print("  The commit is saved locally in ~/.leetcode-cli/repo; "
+            print("  The commit is saved locally in ~/.leetcode-assistant/repo; "
                   "fix auth and `git push` there, or re-run submit.")
 
     # Optionally tidy up the local file now that it's safely committed.
@@ -383,7 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="leetcode",
         description="A daily LeetCode workflow: fetch, test, and submit problems.",
     )
-    p.add_argument("--version", action="version", version=f"leetcode-cli {__version__}")
+    p.add_argument("--version", action="version", version=f"leetcode-assistant {__version__}")
     sub = p.add_subparsers(dest="command")
 
     pf = sub.add_parser("fetch", help="fetch a problem and scaffold a solution file")

@@ -1,7 +1,7 @@
-"""Configuration + on-disk paths for leetcode-cli.
+"""Configuration + on-disk paths for leetcode-assistant.
 
 Everything that should outlive a single working directory lives under
-``~/.leetcode-cli``:
+``~/.leetcode-assistant``:
 
     config.json    user settings (repo URL, language, difficulty filter)
     progress.json  solve log used for streak tracking
@@ -12,15 +12,32 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
-HOME_DIR = Path.home() / ".leetcode-cli"
+HOME_DIR = Path.home() / ".leetcode-assistant"
+# Previous location (the tool used to be called "leetcode-cli"); migrated once.
+_OLD_HOME_DIR = Path.home() / ".leetcode-cli"
 CONFIG_PATH = HOME_DIR / "config.json"
 PROGRESS_PATH = HOME_DIR / "progress.json"
 REPO_DIR = HOME_DIR / "repo"
 TOPICS_CACHE = HOME_DIR / "topics_cache.json"
 NEETCODE_CACHE = HOME_DIR / "neetcode_cache.json"
+
+
+def _migrate_old_home() -> None:
+    """Carry settings/progress over from the old ~/.leetcode-cli folder once."""
+    if not _OLD_HOME_DIR.exists():
+        return
+    try:
+        HOME_DIR.mkdir(parents=True, exist_ok=True)
+        for name in ("config.json", "progress.json"):
+            old, new = _OLD_HOME_DIR / name, HOME_DIR / name
+            if old.exists() and not new.exists():
+                shutil.copyfile(old, new)
+    except OSError:
+        pass
 
 # Per-working-directory scratch space for fetched problem metadata so that
 # `leetcode test` / `leetcode submit` can run without re-fetching.
@@ -48,11 +65,13 @@ DEFAULTS: dict[str, Any] = {
 
 
 def ensure_home() -> None:
+    _migrate_old_home()
     HOME_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_config() -> dict[str, Any] | None:
     """Return the saved config, or ``None`` if the tool has not been set up."""
+    _migrate_old_home()
     if not CONFIG_PATH.exists():
         return None
     try:
@@ -81,7 +100,7 @@ def _prompt(label: str, default: str = "") -> str:
 
 def first_run_setup() -> dict[str, Any]:
     """Interactively create the config file. Returns the saved config."""
-    print("\nWelcome to leetcode-cli! Let's set things up (saved to")
+    print("\nWelcome to leetcode-assistant! Let's set things up (saved to")
     print(f"{CONFIG_PATH}).\n")
 
     config = dict(DEFAULTS)

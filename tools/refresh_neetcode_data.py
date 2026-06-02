@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 
 PRACTICE_URL = "https://neetcode.io/practice"
-OUT_PATH = Path(__file__).resolve().parent.parent / "leetcode_cli" / "neetcode_roadmap.json"
+OUT_PATH = Path(__file__).resolve().parent.parent / "leetcode_assistant" / "neetcode_roadmap.json"
 
 ROADMAP_PATTERNS = {
     "Arrays & Hashing", "Two Pointers", "Stack", "Binary Search", "Sliding Window",

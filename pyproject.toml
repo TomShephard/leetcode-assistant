@@ -3,18 +3,18 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "leetcode-cli"
-version = "1.3.0"
-description = "A daily LeetCode workflow CLI: fetch, test, submit, and a NeetCode roadmap."
+name = "leetcode-assistant"
+version = "1.4.0"
+description = "Leetcode Assistant: fetch, solve in-app, test, submit, with a NeetCode roadmap and complexity checks."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []  # standard library only
 
 [project.scripts]
-leetcode = "leetcode_cli.cli:main"
+leetcode = "leetcode_assistant.cli:main"
 
 [tool.setuptools]
-packages = ["leetcode_cli"]
+packages = ["leetcode_assistant"]
 
 [tool.setuptools.package-data]
-leetcode_cli = ["neetcode_roadmap.json", "icon.png", "icon.ico"]
+leetcode_assistant = ["neetcode_roadmap.json", "icon.png", "icon.ico"]

@@ -32,7 +32,7 @@ LEETCODE_GRAPHQL = "https://leetcode.com/graphql"
 LEVEL_TO_NAME = {1: "easy", 2: "medium", 3: "hard"}
 
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0 (leetcode-cli)",
+    "User-Agent": "Mozilla/5.0 (leetcode-assistant)",
     "Referer": "https://leetcode.com",
     "Content-Type": "application/json",
 }
