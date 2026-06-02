@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leetcode-assistant"
-version = "1.10.0"
+version = "1.10.1"
 description = "Leetcode Assistant: fetch, solve in-app, test, submit, with a NeetCode roadmap, spaced-repetition refreshes, and topic tests."
 readme = "README.md"
 requires-python = ">=3.9"

@@ -436,15 +436,18 @@ class App:
         self.solve_save_btn = ttk.Button(bar, text="Save", command=self._solve_save)
         self.solve_save_btn.pack(side="right", padx=3)
 
-        # vertical split: editor area on top, tests/output below, with a
-        # draggable sash so the console can be grown or shrunk.
-        vsplit = tk.PanedWindow(parent, orient="vertical", sashwidth=6,
-                                bg=BORDER, bd=0)
+        # vertical split: editor area on top, tests/output below, with a clearly
+        # grabbable sash (raised + handle) so the console can be dragged taller
+        # or shorter at will.
+        vsplit = tk.PanedWindow(parent, orient="vertical", sashwidth=10,
+                                bg=BORDER, bd=0, sashrelief="raised",
+                                showhandle=True, handlesize=10)
         vsplit.pack(fill="both", expand=True, padx=10, pady=6)
 
-        # main split: description | editor
-        split = tk.PanedWindow(vsplit, orient="horizontal", sashwidth=6,
-                               bg=BORDER, bd=0)
+        # main split: description | editor (also draggable)
+        split = tk.PanedWindow(vsplit, orient="horizontal", sashwidth=10,
+                               bg=BORDER, bd=0, sashrelief="raised",
+                               showhandle=True, handlesize=10)
 
         desc_wrap = ttk.Labelframe(split, text="Problem", style="Card.TLabelframe")
         self.desc_text = tk.Text(desc_wrap, wrap="word", state="disabled",
@@ -460,7 +463,7 @@ class App:
         self.code_editor = CodeEditor(edit_wrap, language="python")
         self.code_editor.pack(fill="both", expand=True, padx=2, pady=2)
         split.add(edit_wrap, minsize=420)
-        vsplit.add(split, minsize=220, stretch="always")
+        vsplit.add(split, minsize=140, stretch="always")
 
         # bottom: test/output console -- drag the sash above to resize it
         out = ttk.Labelframe(vsplit, text="Tests / output", style="Card.TLabelframe")

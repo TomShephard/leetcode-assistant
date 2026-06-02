@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.10.1
+- Solve tab: the sash above the **Tests / output** console is now wider, raised,
+  and has a visible drag handle, so it's obvious you can drag the console taller
+  or shorter. The editor can also shrink further, letting the console grow much
+  larger. (The resizable console first shipped in v1.8.1 -- this just makes it
+  discoverable.)
+
 ## v1.10.0
 - **Self-reported approach.** Submitting now asks a quick "how did you solve
   this?" -- Optimal / Brute-force / Skip (Enter accepts Optimal). This replaces
