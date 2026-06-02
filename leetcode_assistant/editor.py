@@ -68,10 +68,18 @@ class CodeEditor(tk.Frame):
         self.text.bind("<Tab>", self._on_tab)
         self.text.bind("<Shift-Tab>", self._on_shift_tab)
         self.text.bind("<Return>", self._on_return)
+        self.text.bind("<BackSpace>", self._on_backspace)
         self.text.bind("<ButtonRelease-1>", lambda e: (self._highlight_current_line(),
                                                        self._redraw_gutter()))
         self.text.bind("<Configure>", lambda e: self._redraw_gutter())
         self.text.bind("<MouseWheel>", lambda e: self.after(2, self._redraw_gutter))
+
+        # Auto-close brackets and quotes (IDE feel).
+        self._PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
+        for opener in self._PAIRS:
+            self.text.bind(opener, self._on_open_pair)
+        for closer in (")", "]", "}"):
+            self.text.bind(closer, self._on_close_pair)
 
         # Find + font-zoom
         self.font_size = 11
@@ -191,20 +199,96 @@ class CodeEditor(tk.Frame):
         line_start = self.text.index("insert linestart")
         line = self.text.get(line_start, "insert")
         indent = re.match(r"[ \t]*", line).group(0)
+        before = self.text.get("insert-1c", "insert")
+        after = self.text.get("insert", "insert+1c")
         if line.rstrip().endswith(":"):
             indent += "    "
-        self.text.insert("insert", "\n" + indent)
+        # If pressing Enter between a just-opened pair, e.g. {<cursor>}, open a
+        # blank, indented line and keep the closer on its own dedented line.
+        if before in "([{" and after in ")]}":
+            self.text.insert("insert", "\n" + indent + "    \n" + indent)
+            self.text.mark_set("insert", f"{line_start}+1line lineend")
+        else:
+            self.text.insert("insert", "\n" + indent)
+        self.text.see("insert")
         self.after(1, self._redraw_gutter)
         return "break"
+
+    def _on_backspace(self, _event) -> str:
+        # If there's a selection, let the default handler delete it.
+        if self.text.tag_ranges("sel"):
+            return ""
+        line_start = self.text.index("insert linestart")
+        before = self.text.get(line_start, "insert")
+        # Inside an empty auto-closed pair: delete both characters.
+        pair_before = self.text.get("insert-1c", "insert")
+        pair_after = self.text.get("insert", "insert+1c")
+        if pair_before in self._PAIRS and self._PAIRS.get(pair_before) == pair_after:
+            self.text.delete("insert-1c", "insert+1c")
+            return "break"
+        # At indentation (only spaces before the cursor): delete to the
+        # previous tab stop instead of one space at a time.
+        if before and before.strip(" ") == "":
+            col = len(before)
+            remove = col % 4 or 4
+            self.text.delete(f"insert-{remove}c", "insert")
+            return "break"
+        return ""  # normal single-character backspace
+
+    def _on_open_pair(self, event) -> str:
+        opener = event.char
+        closer = self._PAIRS[opener]
+        if self.text.tag_ranges("sel"):  # wrap selection
+            start, end = self.text.index("sel.first"), self.text.index("sel.last")
+            selected = self.text.get(start, end)
+            self.text.delete(start, end)
+            self.text.insert(start, opener + selected + closer)
+            return "break"
+        nxt = self.text.get("insert", "insert+1c")
+        # For quotes, don't auto-pair when next to a word char (e.g. apostrophes).
+        if opener in "\"'" and (nxt.isalnum()):
+            return ""
+        self.text.insert("insert", opener + closer)
+        self.text.mark_set("insert", "insert-1c")
+        return "break"
+
+    def _on_close_pair(self, event) -> str:
+        closer = event.char
+        if self.text.get("insert", "insert+1c") == closer:
+            # type-over the existing closer instead of inserting a duplicate
+            self.text.mark_set("insert", "insert+1c")
+            return "break"
+        return ""
 
     def _on_key_release(self, event) -> None:
         if event.keysym in ("Up", "Down", "Left", "Right", "Home", "End",
                             "Prior", "Next"):
             self._highlight_current_line()
+            self._ensure_scrolloff()
             return
         self.highlight_all()
         self._highlight_current_line()
         self._redraw_gutter()
+        self._ensure_scrolloff()
+
+    def _ensure_scrolloff(self, margin: int = 4) -> None:
+        """Keep a few lines visible below the cursor (like an IDE's scrolloff),
+        so you can always see room below where you're typing."""
+        try:
+            self.text.see("insert")
+            h = self.text.winfo_height()
+            if h <= 1:
+                return
+            ins = int(self.text.index("insert").split(".")[0])
+            bottom = int(self.text.index(f"@0,{h - 1}").split(".")[0])
+            last = int(self.text.index("end-1c").split(".")[0])
+            # don't scroll past content unnecessarily
+            want = min(margin, last - ins)
+            if bottom - ins < want:
+                self.text.yview_scroll(want - (bottom - ins), "units")
+                self._redraw_gutter()
+        except (tk.TclError, ValueError):
+            pass
 
     # -- highlighting ---------------------------------------------------- #
     def _highlight_current_line(self) -> None:

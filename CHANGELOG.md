@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.6.0
+- Editor feels like a real IDE: tab-aware backspace (delete a whole indent
+  level at once), auto-closing brackets/quotes with type-over, and a
+  scroll-margin so there's always room below the cursor.
+- The Solve editor now shows just your code -- the problem text lives only in
+  the left pane -- giving more space to write (the description is re-attached
+  to the saved file automatically).
+
 ## v1.5.0
 - `leetcode doctor`: preflight checks (Python, git, GitHub auth, network, config).
 - `leetcode review`: spaced-repetition queue of problems due for another pass.

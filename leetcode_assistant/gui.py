@@ -449,7 +449,7 @@ class App:
         out = ttk.Labelframe(parent, text="Tests / output", style="Card.TLabelframe")
         out.pack(fill="x", padx=10, pady=(0, 8))
         mono = tkfont.Font(family="Consolas", size=10)
-        self.solve_output = tk.Text(out, wrap="word", height=8, state="disabled",
+        self.solve_output = tk.Text(out, wrap="word", height=6, state="disabled",
                                     background=CONSOLE_BG, foreground=CONSOLE_FG,
                                     relief="flat", font=mono, padx=10, pady=6)
         self.solve_output.pack(side="left", fill="both", expand=True)
@@ -491,10 +491,25 @@ class App:
         self._set_desc(desc or "(no description stored)")
         lang = meta.get("language", "python")
         try:
-            self.code_editor.set_code(path.read_text(encoding="utf-8"), language=lang)
+            text = path.read_text(encoding="utf-8")
+            # The description is already shown on the left, so keep it out of the
+            # editor -- show just the code. We re-attach the header on save.
+            self._solve_header, body = self._split_header(text, lang)
+            self.code_editor.set_code(body, language=lang)
         except OSError as exc:
             self._solve_log(f"Could not read file: {exc}\n", "fail")
         self.code_editor.focus_editor()
+
+    @staticmethod
+    def _split_header(text: str, lang: str) -> tuple[str, str]:
+        """Split the leading description comment block from the code body."""
+        if lang == "javascript":
+            m = re.match(r"\s*/\*.*?\*/\s*", text, re.S)
+        else:
+            m = re.match(r"\s*(?P<q>\"\"\"|''').*?(?P=q)\s*", text, re.S)
+        if m:
+            return text[:m.end()], text[m.end():]
+        return "", text
 
     def _open_solve(self) -> None:
         """Switch to the Solve tab and load the current problem into the editor."""
@@ -521,7 +536,9 @@ class App:
         if not self.solve_path:
             return False
         try:
-            self.solve_path.write_text(self.code_editor.get_code(), encoding="utf-8")
+            # Re-attach the description header that we hid from the editor.
+            content = getattr(self, "_solve_header", "") + self.code_editor.get_code()
+            self.solve_path.write_text(content, encoding="utf-8")
             self.status_var.set(f"Saved {self.solve_path.name}")
             return True
         except OSError as exc:
