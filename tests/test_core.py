@@ -35,19 +35,28 @@ class TestReadme(unittest.TestCase):
     def test_generate(self):
         entries = [
             {"date": "2026-01-01", "number": 1, "slug": "two-sum", "title": "Two Sum",
-             "difficulty": "easy", "topic": "Arrays & Hashing",
+             "difficulty": "easy", "topic": "Arrays & Hashing", "optimality": "optimal",
              "url": "https://leetcode.com/problems/two-sum/", "seconds": 125},
             {"date": "2026-01-02", "number": 2, "slug": "x", "title": "X",
-             "difficulty": "medium", "topic": "Stack"},
+             "difficulty": "medium", "topic": "Stack", "optimality": "suboptimal"},
         ]
         md = readme.generate(entries, streak=2)
         self.assertIn("# LeetCode Solutions", md)
         self.assertIn("Two Sum", md)
         self.assertIn("2m 5s", md)            # 125 seconds formatted
         self.assertIn("img.shields.io", md)   # badges present
-        # the approach/optimality column has been removed
-        self.assertNotIn("Approach", md)
-        self.assertNotIn("Suboptimal", md)
+        # self-reported approach column is rendered
+        self.assertIn("Approach", md)
+        self.assertIn("Optimal", md)
+        self.assertIn("Suboptimal", md)
+
+    def test_generate_unmarked_approach(self):
+        # entries with no self-reported approach show "-" and no optimal badge
+        entries = [{"date": "2026-01-01", "number": 1, "slug": "two-sum",
+                    "title": "Two Sum", "difficulty": "easy", "topic": "Arrays & Hashing"}]
+        md = readme.generate(entries, streak=1)
+        self.assertIn("Approach", md)
+        self.assertNotIn("Solved optimally", md)
 
 
 class TestScaffoldSignatures(unittest.TestCase):
@@ -116,6 +125,19 @@ class TestProgress(unittest.TestCase):
         slugs = [d["slug"] for d in due]
         self.assertIn("old", slugs)
         self.assertNotIn("new", slugs)
+
+    def test_optimality_recorded_and_counted(self):
+        progress.record_solve(1, "a", "A", "easy", optimality="optimal")
+        progress.record_solve(2, "b", "B", "easy", optimality="suboptimal")
+        progress.record_solve(3, "c", "C", "easy")            # unmarked / skipped
+        progress.record_solve(4, "d", "D", "easy", optimality="garbage")  # ignored
+        s = progress.stats()
+        self.assertEqual(s["graded"], 2)   # only the two valid marks count
+        self.assertEqual(s["optimal"], 1)
+        a = progress._load()["solved"][0]
+        self.assertEqual(a.get("optimality"), "optimal")
+        c = progress._load()["solved"][2]
+        self.assertNotIn("optimality", c)  # skipped -> key omitted
 
 
 class TestReviewSRS(unittest.TestCase):

@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.10.0
+- **Self-reported approach.** Submitting now asks a quick "how did you solve
+  this?" -- Optimal / Brute-force / Skip (Enter accepts Optimal). This replaces
+  the removed auto-probe: it's always accurate, and it lets you deliberately
+  lock in a brute-force attempt before redoing it efficiently. The **Approach**
+  column, optimal badge/summary, and Stats ratio are back, now driven by your
+  own marks. CLI: `leetcode submit --approach optimal|brute|skip`.
+- The approach prompt is skipped during a topic-test gauntlet to keep it
+  flowing.
+
 ## v1.9.0
 - **Removed the complexity / "optimal vs brute-force" check.** Empirically
   timing a solution is unreliable (it only works for some Python problems and

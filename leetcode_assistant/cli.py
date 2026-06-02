@@ -184,6 +184,25 @@ def cmd_test(args: argparse.Namespace, config: dict[str, Any]) -> int:
     return 0 if report.passed else 1
 
 
+def _resolve_approach(flag: str | None) -> str | None:
+    """Map the --approach flag (or an interactive prompt) to a stored value."""
+    norm = {"optimal": "optimal", "brute": "suboptimal", "suboptimal": "suboptimal",
+            "skip": None}
+    if flag is not None:
+        return norm.get(flag)
+    if not sys.stdin.isatty():
+        return None
+    try:
+        ans = input("Approach? [O]ptimal / [b]rute-force / [s]kip: ").strip().lower()
+    except EOFError:
+        return None
+    if ans in ("", "o", "optimal"):
+        return "optimal"
+    if ans in ("b", "brute", "suboptimal"):
+        return "suboptimal"
+    return None
+
+
 def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     cwd = Path.cwd()
     path, meta = _resolve_target(cwd, args.file)
@@ -227,10 +246,13 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     from . import roadmap
     topic = roadmap.topic_for_slug(meta["slug"]) or ""
 
+    # Self-reported approach: --approach optimal|brute, else prompt if interactive.
+    optimality = _resolve_approach(getattr(args, "approach", None))
+
     # Record BEFORE committing so the repo README includes this solve.
     progress.record_solve(
         meta["number"], meta["slug"], meta["title"], meta["difficulty"],
-        topic=topic, url=meta.get("url"))
+        topic=topic, optimality=optimality, url=meta.get("url"))
     # Spaced-repetition: schedule (or, with --rating, advance) the refresh.
     rating = getattr(args, "rating", None)
     rmeta = {**meta, "topic": topic}
@@ -359,6 +381,8 @@ def cmd_stats(args: argparse.Namespace, config: dict[str, Any]) -> int:
     s = progress.stats()
     print(f"Total solved: {s['total']}")
     print(f"Current streak: {s['streak']} day(s)   (longest: {s['longest_streak']})")
+    if s.get("graded"):
+        print(f"Solved optimally (self-marked): {s['optimal']}/{s['graded']}")
     if s["by_difficulty"]:
         print("By difficulty:")
         for diff in ("easy", "medium", "hard"):
@@ -429,6 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--rating", choices=("aced", "good", "hard"),
                     help="spaced-repetition rating for this attempt "
                          "(aced=level up, good=stay, hard=reset)")
+    ps.add_argument("--approach", choices=("optimal", "brute", "suboptimal", "skip"),
+                    help="self-reported approach recorded in the README "
+                         "(optimal / brute / skip)")
     ps.set_defaults(func=cmd_submit)
 
     pcl = sub.add_parser("clean", help="remove scaffolded files from a folder")

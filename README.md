@@ -145,17 +145,24 @@ question set, result, completion time, and a collapsible per-problem log.
 ## Stats
 
 The **Stats** tab shows a GitHub-style activity heatmap, your current and
-longest streaks, and per-difficulty counts.
+longest streaks, per-difficulty counts, and your self-marked optimal ratio.
 
 Stuck on setup? `leetcode doctor` checks Python, git, GitHub auth, network, and
 your config, and tells you exactly what's missing.
 
-## Self-updating solutions README
+## Approach and a self-updating solutions README
+
+When you submit, a quick prompt asks how you solved it -- **Optimal**,
+**Brute-force / suboptimal**, or **Skip** (Enter accepts Optimal). It's a
+self-report rather than an automated guess, so it's always accurate and lets you
+deliberately "lock in" a brute-force attempt before redoing it the efficient
+way. (You can `leetcode submit --approach optimal|brute|skip` from the CLI.)
 
 Each submission rewrites a presentable `README.md` in your **solutions repo**
-from your full solve log: summary badges (solved / streak / per-difficulty) and
-a table of every problem with its date, difficulty, topic, and solve time,
-followed by your review schedule and any passed topic tests.
+from your full solve log: summary badges (solved / streak / per-difficulty /
+optimal ratio) and a table of every problem with its date, difficulty, topic,
+approach, and solve time, followed by your review schedule and any passed topic
+tests.
 
 ## Standalone EXE (no Python needed)
 

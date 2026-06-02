@@ -631,8 +631,9 @@ class App:
             if getattr(self, "_solve_started", None) is not None:
                 elapsed = int(time.monotonic() - self._solve_started)
             rating, test_ctx = self._submit_context(meta.get("slug", ""))
+            optimality = None if test_ctx else self._ask_approach()
             self._do_commit(path, meta, repo_url, seconds=elapsed, rating=rating,
-                            test_ctx=test_ctx)
+                            test_ctx=test_ctx, optimality=optimality)
             if elapsed:
                 m, s = divmod(elapsed, 60)
                 self._solve_log(f"Solved in {m}m {s}s.\n", "muted")
@@ -1036,9 +1037,10 @@ class App:
 
     def _refresh_stats(self) -> None:
         s = progress.stats()
+        opt = f"    Optimal: {s['optimal']}/{s['graded']}" if s.get("graded") else ""
         self.stats_summary_var.set(
             f"Solved: {s['total']}    Current streak: {s['streak']}    "
-            f"Longest streak: {s['longest_streak']}")
+            f"Longest streak: {s['longest_streak']}{opt}")
         d = s["by_difficulty"]
         self.stats_diff_var.set(
             f"Easy {d.get('easy', 0):>4}    "
@@ -1636,7 +1638,9 @@ class App:
                     self.log("Submit cancelled.\n", "muted")
                     return
             rating, test_ctx = self._submit_context(meta.get("slug", ""))
-            self._do_commit(path, meta, repo_url, rating=rating, test_ctx=test_ctx)
+            optimality = None if test_ctx else self._ask_approach()
+            self._do_commit(path, meta, repo_url, rating=rating, test_ctx=test_ctx,
+                            optimality=optimality)
 
         self.run_bg(lambda: runner.run_tests(path, meta), after_tests)
 
@@ -1676,6 +1680,43 @@ class App:
         x = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
         y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
         win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        self.root.wait_window(win)
+        return result["v"]
+
+    def _ask_approach(self) -> str | None:
+        """Quick self-report of the approach. Returns 'optimal', 'suboptimal',
+        or None (skipped). Enter accepts Optimal; Esc skips."""
+        win = tk.Toplevel(self.root)
+        win.title("Which approach?")
+        win.configure(bg=CARD)
+        win.transient(self.root)
+        win.resizable(False, False)
+        result = {"v": None}
+        ttk.Label(win, text="How did you solve this one? "
+                  "(recorded in your repo README)",
+                  style="Card.TLabel", padding=12).pack()
+        row = ttk.Frame(win, style="Card.TFrame")
+        row.pack(padx=12, pady=(0, 12))
+
+        def choose(v: str | None) -> None:
+            result["v"] = v
+            win.destroy()
+
+        opt_btn = ttk.Button(row, text="Optimal", width=30,
+                             command=lambda: choose("optimal"))
+        opt_btn.pack(pady=3)
+        ttk.Button(row, text="Brute-force / suboptimal", width=30,
+                   command=lambda: choose("suboptimal")).pack(pady=3)
+        ttk.Button(row, text="Skip", width=30,
+                   command=lambda: choose(None)).pack(pady=3)
+        win.bind("<Return>", lambda e: choose("optimal"))
+        win.bind("<Escape>", lambda e: choose(None))
+        win.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        opt_btn.focus_set()
         win.grab_set()
         self.root.wait_window(win)
         return result["v"]
@@ -1763,7 +1804,8 @@ class App:
 
     def _do_commit(self, path: Path, meta: dict[str, Any], repo_url: str,
                    seconds: int | None = None, rating: str | None = None,
-                   test_ctx: dict[str, Any] | None = None) -> None:
+                   test_ctx: dict[str, Any] | None = None,
+                   optimality: str | None = None) -> None:
         ext = SUPPORTED_LANGUAGES.get(meta.get("language", "python"), {}).get("ext", "txt")
         self.log("Tests passed. Committing...\n", "info")
         self.status_var.set("Committing, please wait...")
@@ -1774,7 +1816,7 @@ class App:
             # record BEFORE commit so the repo README includes this solve
             progress.record_solve(
                 meta["number"], meta["slug"], meta["title"], meta["difficulty"],
-                topic=topic, url=meta.get("url"), seconds=seconds)
+                topic=topic, optimality=optimality, url=meta.get("url"), seconds=seconds)
             review = progress.schedule_review(
                 meta["slug"], {**meta, "topic": topic}, rating=rating)
             test_result = None
@@ -1793,6 +1835,10 @@ class App:
                 self.log(f"Git error: {err}\n", "fail")
                 return
             result, review, test_result = payload
+            if optimality == "optimal":
+                self.log("Marked as optimal.\n", "pass")
+            elif optimality == "suboptimal":
+                self.log("Marked as brute-force / suboptimal.\n", "muted")
             if review:
                 self.log(f"Next refresh: {review['due']} "
                          f"({progress.level_name(review['level'])}).\n", "info")

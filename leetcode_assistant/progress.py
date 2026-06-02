@@ -26,7 +26,7 @@ def _save(data: dict[str, Any]) -> None:
 
 
 def record_solve(number: int, slug: str, title: str, difficulty: str,
-                 topic: str | None = None,
+                 topic: str | None = None, optimality: str | None = None,
                  url: str | None = None, seconds: int | None = None) -> dict[str, Any]:
     data = _load()
     today = date.today().isoformat()
@@ -39,6 +39,10 @@ def record_solve(number: int, slug: str, title: str, difficulty: str,
         "topic": topic or "",
         "url": url or f"https://leetcode.com/problems/{slug}/",
     }
+    # Self-reported at submit time ("optimal" / "suboptimal"); omitted when the
+    # user skips, so it simply shows as unmarked in the README.
+    if optimality in ("optimal", "suboptimal"):
+        entry["optimality"] = optimality
     if seconds is not None and seconds > 0:
         entry["seconds"] = int(seconds)
     # Update in place if this problem was already logged (keep latest verdict).
@@ -369,14 +373,22 @@ def stats() -> dict[str, Any]:
     data = _load()
     solved = data["solved"]
     by_diff: dict[str, int] = {}
+    optimal = graded = 0
     for e in solved:
         by_diff[e.get("difficulty", "unknown")] = by_diff.get(
             e.get("difficulty", "unknown"), 0
         ) + 1
+        opt = e.get("optimality")
+        if opt in ("optimal", "suboptimal"):
+            graded += 1
+            if opt == "optimal":
+                optimal += 1
     return {
         "total": len(solved),
         "by_difficulty": by_diff,
         "streak": current_streak(),
         "longest_streak": longest_streak(),
+        "optimal": optimal,
+        "graded": graded,
         "last": solved[-1] if solved else None,
     }
