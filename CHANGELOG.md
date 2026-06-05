@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.10.3
+- Solve editor: the import preamble is now a **collapsible block**, folded by
+  default so the boilerplate imports stay out of the way. A small triangle in
+  the line-number gutter toggles it -- click to expand or re-collapse. The full
+  imports are always saved and submitted regardless of fold state.
+
 ## v1.10.2
 - **Order-insensitive test matching.** Many LeetCode problems accept the answer
   in any order (Group Anagrams, Subsets, Permutations, ...). The local runner

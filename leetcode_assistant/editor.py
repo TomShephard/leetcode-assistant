@@ -63,6 +63,11 @@ class CodeEditor(tk.Frame):
         for tag, col in COLORS.items():
             self.text.tag_configure(tag, foreground=col)
         self.text.tag_configure("curline", background=CUR_LINE)
+        # Collapsible import block (Python): the leading run of import lines can
+        # be folded away so the boilerplate preamble doesn't eat editor space.
+        self._fold_end = 0            # last line of the import block (0 = none)
+        self._imports_folded = False
+        self.text.tag_configure("foldimports", elide=True)
 
         self.text.bind("<KeyRelease>", self._on_key_release)
         self.text.bind("<Tab>", self._on_tab)
@@ -75,6 +80,7 @@ class CodeEditor(tk.Frame):
                                                        self._redraw_gutter()))
         self.text.bind("<Configure>", lambda e: self._redraw_gutter())
         self.text.bind("<MouseWheel>", lambda e: self.after(2, self._redraw_gutter))
+        self.gutter.bind("<Button-1>", self._on_gutter_click)
 
         # Auto-close brackets and quotes (IDE feel).
         self._PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
@@ -153,6 +159,7 @@ class CodeEditor(tk.Frame):
         self.text.insert("1.0", code)
         self.text.edit_reset()  # clear undo history
         self.highlight_all()
+        self._update_fold_region(default_fold=True)
         self._redraw_gutter()
         self._highlight_current_line()
 
@@ -182,6 +189,81 @@ class CodeEditor(tk.Frame):
             i = self.text.index(f"{i}+1line")
             if int(line_no) > 100000:
                 break
+        self._draw_fold_marker()
+
+    # -- import folding ------------------------------------------------- #
+    def _detect_import_block(self) -> int:
+        """Last line number of the leading import block (0 if none)."""
+        if self.language != "python":
+            return 0
+        try:
+            n = int(self.text.index("end-1c").split(".")[0])
+        except (tk.TclError, ValueError):
+            return 0
+        last = 0
+        for ln in range(1, n + 1):
+            s = self.text.get(f"{ln}.0", f"{ln}.end").strip()
+            if s == "" or s.startswith("#"):
+                continue                       # blanks/comments don't end it
+            if s.startswith("import ") or s.startswith("from "):
+                last = ln
+                continue
+            break                              # first real code line
+        return last
+
+    def _update_fold_region(self, default_fold: bool = False) -> None:
+        self._fold_end = self._detect_import_block()
+        self._imports_folded = bool(default_fold and self._fold_end >= 1)
+        self._apply_import_fold()
+
+    def _apply_import_fold(self) -> None:
+        self.text.tag_remove("foldimports", "1.0", "end")
+        if self._imports_folded and self._fold_end >= 1:
+            # also swallow the blank separator line(s) so the body sits at the
+            # very top when collapsed
+            end = self._fold_end + 1
+            try:
+                n = int(self.text.index("end-1c").split(".")[0])
+            except (tk.TclError, ValueError):
+                n = end
+            while end < n and self.text.get(f"{end}.0", f"{end}.end").strip() == "":
+                end += 1
+            self.text.tag_add("foldimports", "1.0", f"{end}.0")
+
+    def toggle_import_fold(self) -> None:
+        if self._fold_end < 1:
+            return
+        self._imports_folded = not self._imports_folded
+        self._apply_import_fold()
+        self._redraw_gutter()
+        self.text.focus_set()
+
+    def _draw_fold_marker(self) -> None:
+        if self._fold_end < 1:
+            return
+        col = COLORS["def"]
+        if self._imports_folded:
+            # collapsed: right-pointing triangle at the very top
+            self.gutter.create_polygon(6, 4, 6, 14, 13, 9, fill=col, outline="",
+                                       tags="foldmark")
+        else:
+            info = self.text.dlineinfo("1.0")
+            if info:
+                cy = info[1] + info[3] // 2
+                # expanded: down-pointing triangle on the first import line
+                self.gutter.create_polygon(4, cy - 3, 14, cy - 3, 9, cy + 3,
+                                           fill=col, outline="", tags="foldmark")
+
+    def _on_gutter_click(self, event) -> None:
+        if self._fold_end < 1:
+            return
+        if self._imports_folded:
+            if event.y <= 18:
+                self.toggle_import_fold()
+            return
+        info = self.text.dlineinfo("1.0")
+        if info and info[1] <= event.y <= info[1] + info[3]:
+            self.toggle_import_fold()
 
     # -- editing behaviour ---------------------------------------------- #
     def _on_tab(self, _event) -> str:
