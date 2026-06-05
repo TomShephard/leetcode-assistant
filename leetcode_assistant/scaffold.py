@@ -87,11 +87,18 @@ def _comment_block(problem: Problem, lang: str) -> str:
     return f"/*\n{commented}\n */\n"
 
 
-# LeetCode's online judge auto-imports typing names (List, Optional, ...) and
-# defines helper classes. Adding these makes the scaffold runnable locally on
-# every Python version (older versions evaluate annotations eagerly at import).
+# LeetCode's online judge auto-imports typing names (List, Optional, ...) plus
+# the common standard-library helpers (collections, heapq, ...). Mirroring that
+# here means solutions that rely on e.g. `defaultdict` or `Counter` without an
+# explicit import run locally just like they do on LeetCode.
 _PY_PREAMBLE = (
-    "from typing import List, Optional, Dict, Set, Tuple\n\n"
+    "from typing import List, Optional, Dict, Set, Tuple\n"
+    "from collections import defaultdict, Counter, deque, OrderedDict\n"
+    "import heapq\n"
+    "import bisect\n"
+    "import math\n"
+    "import itertools\n"
+    "import functools\n\n"
 )
 
 

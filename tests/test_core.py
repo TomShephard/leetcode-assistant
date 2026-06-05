@@ -297,5 +297,43 @@ class TestTopicTests(unittest.TestCase):
         self.assertIn("two-sum", md)
 
 
+class TestRunnerOrdering(unittest.TestCase):
+    """The local runner must accept answers that are correct up to ordering
+    (Group Anagrams etc.), but still reject genuinely different answers."""
+
+    from leetcode_assistant import runner as _runner
+
+    def _run(self, body, cases):
+        with tempfile.TemporaryDirectory() as td:
+            sol = Path(td) / "sol.py"
+            sol.write_text(body, encoding="utf-8")
+            meta = {"language": "python", "function": "f", "test_cases": cases}
+            return self._runner.run_tests(sol, meta)
+
+    def test_group_anagrams_any_order(self):
+        body = ("from typing import List\n"
+                "from collections import defaultdict\n"
+                "class Solution:\n"
+                "    def f(self, strs):\n"
+                "        res = defaultdict(list)\n"
+                "        for s in strs:\n"
+                "            res[tuple(sorted(s))].append(s)\n"
+                "        return list(res.values())\n")
+        cases = [{"input": ['["eat","tea","tan","ate","nat","bat"]'],
+                  "expected": '[["bat"],["nat","tan"],["ate","eat","tea"]]'}]
+        rep = self._run(body, cases)
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.results[0].note, "matched ignoring order")
+
+    def test_wrong_grouping_still_fails(self):
+        # same letters, but a different grouping must NOT be accepted
+        body = ("class Solution:\n"
+                "    def f(self, strs):\n"
+                "        return [[s] for s in strs]\n")
+        cases = [{"input": ['["ab","ba"]'], "expected": '[["ab","ba"]]'}]
+        rep = self._run(body, cases)
+        self.assertFalse(rep.passed)
+
+
 if __name__ == "__main__":
     unittest.main()

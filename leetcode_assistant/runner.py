@@ -73,24 +73,36 @@ if fn is None:
     print(json.dumps({"fatal": "Method `%s` not found on Solution." % func_name}))
     sys.exit(0)
 
-def norm(v):
+def canon(v):
+    # Canonicalise for order-insensitive comparison: recursively sort every
+    # list (so nested lists like Group Anagrams match regardless of the order
+    # of the groups OR the order within each group). Dicts compare key-wise.
+    if isinstance(v, list):
+        items = [canon(x) for x in v]
+        try:
+            return sorted(items, key=lambda x: json.dumps(x, sort_keys=True))
+        except TypeError:
+            return items
+    if isinstance(v, dict):
+        return {k: canon(val) for k, val in v.items()}
     return v
 
 def equalish(a, b):
     if a == b:
         return (True, "")
-    if isinstance(a, list) and isinstance(b, list):
-        try:
-            if sorted(a) == sorted(b):
-                return (True, "matched ignoring order")
-        except TypeError:
-            pass
     if isinstance(a, float) or isinstance(b, float):
         try:
             if abs(float(a) - float(b)) < 1e-5:
                 return (True, "matched within tolerance")
         except (TypeError, ValueError):
             pass
+    # Many LeetCode problems accept the answer in any order (Group Anagrams,
+    # Subsets, Permutations, ...). Fall back to an order-insensitive match.
+    try:
+        if canon(a) == canon(b):
+            return (True, "matched ignoring order")
+    except Exception:
+        pass
     return (False, "")
 
 results = []
@@ -150,15 +162,34 @@ if (typeof fn !== "function") {
   process.exit(0);
 }
 
-function equalish(a, b) {
-  const sa = JSON.stringify(a), sb = JSON.stringify(b);
-  if (sa === sb) return [true, ""];
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const ca = [...a].sort(), cb = [...b].sort();
-    if (JSON.stringify(ca) === JSON.stringify(cb)) return [true, "matched ignoring order"];
+function canon(v) {
+  // Recursively sort every array so nested lists (e.g. Group Anagrams) match
+  // regardless of order at any level. Object keys are sorted too.
+  if (Array.isArray(v)) {
+    const items = v.map(canon);
+    items.sort((x, y) => {
+      const sx = JSON.stringify(x), sy = JSON.stringify(y);
+      return sx < sy ? -1 : sx > sy ? 1 : 0;
+    });
+    return items;
   }
+  if (v && typeof v === "object") {
+    const o = {};
+    for (const k of Object.keys(v).sort()) o[k] = canon(v[k]);
+    return o;
+  }
+  return v;
+}
+
+function equalish(a, b) {
+  if (JSON.stringify(a) === JSON.stringify(b)) return [true, ""];
   if (typeof a === "number" && typeof b === "number" && Math.abs(a - b) < 1e-5)
     return [true, "matched within tolerance"];
+  // Many LeetCode problems accept any ordering -- compare canonically.
+  try {
+    if (JSON.stringify(canon(a)) === JSON.stringify(canon(b)))
+      return [true, "matched ignoring order"];
+  } catch (e) {}
   return [false, ""];
 }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.10.2
+- **Order-insensitive test matching.** Many LeetCode problems accept the answer
+  in any order (Group Anagrams, Subsets, Permutations, ...). The local runner
+  used to only ignore order at the top level, so a correct Group Anagrams answer
+  with reordered groups -- or reordered items within a group -- was wrongly
+  rejected. Comparison is now recursive/canonical, matching LeetCode's judge,
+  while genuinely different answers still fail.
+- **Scaffold pre-imports the common stdlib helpers** (`defaultdict`, `Counter`,
+  `deque`, `OrderedDict`, `heapq`, `bisect`, `math`, `itertools`, `functools`),
+  mirroring LeetCode's environment -- so a solution using `defaultdict` without
+  an explicit import runs locally instead of raising `NameError`.
+
 ## v1.10.1
 - Solve tab: the sash above the **Tests / output** console is now wider, raised,
   and has a visible drag handle, so it's obvious you can drag the console taller
