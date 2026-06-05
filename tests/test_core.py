@@ -22,6 +22,17 @@ class TestRoadmap(unittest.TestCase):
     def test_topic_for_slug(self):
         self.assertEqual(roadmap.topic_for_slug("two-sum"), "Arrays & Hashing")
 
+    def test_250_is_superset_of_150_per_topic(self):
+        # The Testing tab relies on each preset being a proper superset of the
+        # smaller one; if the 250 flags were lost (e.g. a network fallback) the
+        # 250 columns would come up empty. Lock the property per topic.
+        for t in roadmap.ROADMAP_ORDER:
+            s150 = {p["slug"] for p in roadmap.topic_problems(t, "neetcode150")}
+            s250 = {p["slug"] for p in roadmap.topic_problems(t, "neetcode250")}
+            self.assertTrue(s150, f"{t}: no 150 problems")
+            self.assertTrue(s250, f"{t}: no 250 problems")
+            self.assertTrue(s150 <= s250, f"{t}: 150 not a subset of 250")
+
     def test_resolve_topic(self):
         self.assertEqual(roadmap.resolve_topic("two pointers"), "Two Pointers")
         self.assertEqual(roadmap.resolve_topic("1-d dp"), "1-D Dynamic Programming")

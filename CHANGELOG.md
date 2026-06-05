@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.10.4
+- Fixed the NeetCode **250** preset coming up empty in the Testing tab on some
+  packaged builds. The bundled dataset is the only source carrying the 250
+  flags; the loader now finds it via the PyInstaller bundle dir (`sys._MEIPASS`)
+  first, so the EXE can never silently fall back to the network dataset (which
+  has no 250 data). Added a test locking 150 as a per-topic subset of 250.
+
 ## v1.10.3
 - Solve editor: the import preamble is now a **collapsible block**, folded by
   default so the boilerplate imports stay out of the way. A small triangle in

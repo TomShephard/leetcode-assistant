@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 import random
 import re
+import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 NEETCODE_DATA_URL = (
@@ -108,8 +110,27 @@ def _number_from_code(code: str) -> int:
 
 # The dataset ships with the package (extracted from neetcode.io; refresh with
 # tools/refresh_neetcode_data.py). It carries blind75 / neetcode150 /
-# neetcode250 flags, which the community GitHub JSON lacks.
-BUNDLED_DATA = __import__("pathlib").Path(__file__).with_name("neetcode_roadmap.json")
+# neetcode250 flags, which the community GitHub JSON lacks -- so we MUST load
+# this bundle rather than the network fallback, or the 250 preset comes up
+# empty. In a PyInstaller onefile EXE the data lives under sys._MEIPASS, so we
+# check there first before the module's own directory.
+_DATA_NAME = "neetcode_roadmap.json"
+
+
+def _bundled_data_path() -> Path:
+    candidates: list[Path] = []
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        candidates.append(Path(mei) / "leetcode_assistant" / _DATA_NAME)
+        candidates.append(Path(mei) / _DATA_NAME)
+    candidates.append(Path(__file__).with_name(_DATA_NAME))
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[-1]
+
+
+BUNDLED_DATA = _bundled_data_path()
 
 
 def _normalize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
