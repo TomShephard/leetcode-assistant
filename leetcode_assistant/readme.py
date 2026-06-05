@@ -122,6 +122,17 @@ def _testing_section(tests: dict[str, Any]) -> list[str]:
 def generate(entries: list[dict[str, Any]], streak: int = 0,
              reviews: dict[str, Any] | None = None,
              tests: dict[str, Any] | None = None) -> str:
+    # One row per problem: keep the most recent solve so re-solving the same
+    # problem on a later day doesn't create a duplicate Log row (the per-day
+    # solve history is still kept in progress.json for streaks/heatmap).
+    _latest: dict[str, dict[str, Any]] = {}
+    for e in entries:
+        key = e.get("slug") or e.get("title") or ""
+        cur = _latest.get(key)
+        if cur is None or str(e.get("date", "")) >= str(cur.get("date", "")):
+            _latest[key] = e
+    entries = list(_latest.values())
+
     total = len(entries)
     by_diff = {"easy": 0, "medium": 0, "hard": 0}
     optimal = suboptimal = 0

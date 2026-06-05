@@ -372,9 +372,12 @@ def test_status(topic: str, preset: str, topic_slugs: list[str]) -> dict[str, An
 def stats() -> dict[str, Any]:
     data = _load()
     solved = data["solved"]
+    # Count each problem once (most recent solve), so re-solving on another day
+    # doesn't inflate the totals; streaks below still use the full dated history.
+    latest = _latest_per_slug()
     by_diff: dict[str, int] = {}
     optimal = graded = 0
-    for e in solved:
+    for e in latest.values():
         by_diff[e.get("difficulty", "unknown")] = by_diff.get(
             e.get("difficulty", "unknown"), 0
         ) + 1
@@ -384,7 +387,7 @@ def stats() -> dict[str, Any]:
             if opt == "optimal":
                 optimal += 1
     return {
-        "total": len(solved),
+        "total": len(latest),
         "by_difficulty": by_diff,
         "streak": current_streak(),
         "longest_streak": longest_streak(),

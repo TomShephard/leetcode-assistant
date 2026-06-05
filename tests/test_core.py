@@ -61,6 +61,20 @@ class TestReadme(unittest.TestCase):
         self.assertIn("Optimal", md)
         self.assertIn("Suboptimal", md)
 
+    def test_generate_dedupes_resolves(self):
+        # re-solving the same problem on a later day must not duplicate the row
+        entries = [
+            {"date": "2026-01-01", "number": 242, "slug": "valid-anagram",
+             "title": "Valid Anagram", "difficulty": "easy"},
+            {"date": "2026-01-05", "number": 242, "slug": "valid-anagram",
+             "title": "Valid Anagram", "difficulty": "easy", "optimality": "optimal"},
+        ]
+        md = readme.generate(entries, streak=1)
+        self.assertEqual(md.count("[Valid Anagram]"), 1)   # single Log row
+        self.assertIn("2026-01-05", md)                    # most recent kept
+        self.assertNotIn("2026-01-01", md)
+        self.assertIn("Solved-1-", md)                     # badge counts it once
+
     def test_generate_unmarked_approach(self):
         # entries with no self-reported approach show "-" and no optimal badge
         entries = [{"date": "2026-01-01", "number": 1, "slug": "two-sum",
@@ -136,6 +150,20 @@ class TestProgress(unittest.TestCase):
         slugs = [d["slug"] for d in due]
         self.assertIn("old", slugs)
         self.assertNotIn("new", slugs)
+
+    def test_stats_counts_problems_once(self):
+        self._write([
+            {"date": "2026-01-01", "number": 242, "slug": "valid-anagram",
+             "title": "Valid Anagram", "difficulty": "easy"},
+            {"date": "2026-01-05", "number": 242, "slug": "valid-anagram",
+             "title": "Valid Anagram", "difficulty": "easy", "optimality": "optimal"},
+            {"date": "2026-01-06", "number": 1, "slug": "two-sum",
+             "title": "Two Sum", "difficulty": "easy", "optimality": "optimal"},
+        ])
+        s = progress.stats()
+        self.assertEqual(s["total"], 2)        # two unique problems, not three
+        self.assertEqual(s["graded"], 2)
+        self.assertEqual(s["optimal"], 2)      # latest valid-anagram is optimal
 
     def test_optimality_recorded_and_counted(self):
         progress.record_solve(1, "a", "A", "easy", optimality="optimal")

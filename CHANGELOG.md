@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.10.5
+- Fixed duplicate rows in the solutions-repo **Log** (and double-counting in the
+  badges/Stats) when the same problem was solved on more than one day. The Log
+  now shows **one row per problem** -- the most recent solve -- and "Solved" /
+  per-difficulty / optimal counts are per unique problem. The full per-day solve
+  history is still kept for the streak heatmap.
+
 ## v1.10.4
 - Fixed the NeetCode **250** preset coming up empty in the Testing tab on some
   packaged builds. The bundled dataset is the only source carrying the 250

@@ -5,4 +5,4 @@ commit passing solutions to a private GitHub repo -- with local streak
 tracking.
 """
 
-__version__ = "1.10.4"
+__version__ = "1.10.5"
